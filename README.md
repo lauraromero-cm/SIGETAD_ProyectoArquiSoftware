@@ -5,7 +5,7 @@ Proyecto funcional para el **Sistema de Gestión de Talento y Reclutamiento Digi
 La arquitectura implementa el flujo:
 
 ```text
-Frontend React -> Django API HTTP -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
+Frontend React -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
 ```
 
 Esta opción sigue siendo SOA porque los clientes no consumen directamente la lógica de negocio: la API actúa como adaptador HTTP para el navegador, el **Bus TCP/ESB** desacopla y enruta mensajes, y cada servicio encapsula una responsabilidad del sistema.
