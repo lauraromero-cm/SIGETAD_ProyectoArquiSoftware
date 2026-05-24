@@ -58,3 +58,10 @@ BUS_HOST = os.getenv('BUS_HOST', 'localhost')
 BUS_PORT = int(os.getenv('BUS_PORT', '5000'))
 
 TOKEN_MAX_AGE_SECONDS = 60 * 60 * 8
+
+# Seguridad de contraseñas
+# Django hashea todas las contraseñas usando PBKDF2-SHA256
+# con 720.000 iteraciones por defecto (OWASP recomendado)
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+]

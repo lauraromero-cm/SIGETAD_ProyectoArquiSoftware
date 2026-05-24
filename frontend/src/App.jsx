@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Briefcase, Users, ClipboardList, History, Star, LogOut, UserRound, ShieldCheck } from 'lucide-react'
 import { api, authApi, clearSession, getUser, setSession } from './api.js'
 
+const firmaLogo = new URL('./firmafast-logo.png', import.meta.url).href
+
 const ESTADOS = ['postulado', 'en_revision', 'entrevista', 'evaluacion', 'finalista', 'rechazado', 'contratado']
 
 function App() {
@@ -16,7 +18,7 @@ function App() {
 
 function AuthScreen({ onLogin }) {
   const [mode, setMode] = useState('login')
-  const [form, setForm] = useState({ correo: 'admin@firmafast.cl', contrasena: 'admin123', nombre: '', telefono: '', profesion: '', experiencia_anios: 0 })
+  const [form, setForm] = useState({ correo: 'admin@firmafast.cl', contrasena: 'admin123', nombre: '', telefono: '', profesion: '', experiencia_anios: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -41,11 +43,7 @@ function AuthScreen({ onLogin }) {
     <div className="auth-page">
       <div className="auth-card">
         <div className="brand">
-          <ShieldCheck size={34} />
-          <div>
-            <h1>SIGETAD</h1>
-            <p>Sistema de Gestión de Talento y Reclutamiento Digital</p>
-          </div>
+          <img src={firmaLogo} alt="FirmaFast" />
         </div>
 
         <div className="tabs">
@@ -59,7 +57,15 @@ function AuthScreen({ onLogin }) {
               <label>Nombre completo<input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required /></label>
               <label>Teléfono<input value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} /></label>
               <label>Profesión<input value={form.profesion} onChange={e => setForm({ ...form, profesion: e.target.value })} /></label>
-              <label>Años de experiencia<input type="number" value={form.experiencia_anios} onChange={e => setForm({ ...form, experiencia_anios: Number(e.target.value) })} /></label>
+              <label>Años de experiencia<select value={form.experiencia_anios} onChange={e => setForm({ ...form, experiencia_anios: e.target.value })}>
+                <option value="">Seleccionar...</option>
+                <option value="0">0 años</option>
+                <option value="1">1 año</option>
+                <option value="2">2 años</option>
+                <option value="3">3 años</option>
+                <option value="4">4 años</option>
+                <option value="5+">5 o más años</option>
+              </select></label>
             </>
           )}
           <label>Correo<input type="email" value={form.correo} onChange={e => setForm({ ...form, correo: e.target.value })} required /></label>
@@ -67,14 +73,6 @@ function AuthScreen({ onLogin }) {
           {error && <div className="error">{error}</div>}
           <button className="primary" disabled={loading}>{loading ? 'Procesando...' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}</button>
         </form>
-
-        <div className="hint">
-          <strong>Usuarios demo:</strong><br />
-          admin@firmafast.cl / admin123<br />
-          analista@firmafast.cl / admin123<br />
-          jefe@firmafast.cl / admin123<br />
-          candidato@correo.cl / admin123
-        </div>
       </div>
     </div>
   )
@@ -217,7 +215,15 @@ function PortalCandidato() {
       <label>Email<input value={perfil.email || ''} onChange={e => setPerfil({ ...perfil, email: e.target.value })} /></label>
       <label>Teléfono<input value={perfil.telefono || ''} onChange={e => setPerfil({ ...perfil, telefono: e.target.value })} /></label>
       <label>Profesión<input value={perfil.profesion || ''} onChange={e => setPerfil({ ...perfil, profesion: e.target.value })} /></label>
-      <label>Años experiencia<input type="number" value={perfil.experiencia_anios || 0} onChange={e => setPerfil({ ...perfil, experiencia_anios: Number(e.target.value) })} /></label>
+      <label>Años experiencia<select value={perfil.experiencia_anios || ''} onChange={e => setPerfil({ ...perfil, experiencia_anios: e.target.value })}>
+        <option value="">Seleccionar...</option>
+        <option value="0">0 años</option>
+        <option value="1">1 año</option>
+        <option value="2">2 años</option>
+        <option value="3">3 años</option>
+        <option value="4">4 años</option>
+        <option value="5+">5 o más años</option>
+      </select></label>
       <label>CV / URL<input value={perfil.cv || ''} onChange={e => setPerfil({ ...perfil, cv: e.target.value })} /></label>
       <label>Foto perfil / URL<input value={perfil.foto_perfil || ''} onChange={e => setPerfil({ ...perfil, foto_perfil: e.target.value })} /></label>
       <button className="primary">Guardar perfil</button>

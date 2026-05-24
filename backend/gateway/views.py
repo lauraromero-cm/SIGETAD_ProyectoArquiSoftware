@@ -6,7 +6,7 @@ from .utils import api_view, parse_json, ok, require_auth
 
 @api_view(['GET'])
 def health(request):
-    return ok({'status': 'ok', 'app': 'SIGETAD SOA'})
+    return ok({'status': 'ok', 'app': 'FirmaFast - SIGETAD'})
 
 
 @api_view(['POST'])

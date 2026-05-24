@@ -148,3 +148,21 @@ sigetad-soa/
 - La separación se hace por responsabilidad funcional.
 - La comunicación de negocio pasa por el bus TCP.
 - PostgreSQL se mantiene como base de datos centralizada.
+
+## Seguridad de Contraseñas
+
+Las contraseñas se almacenan **hasheadas** usando el algoritmo **PBKDF2-SHA256** con los siguientes parámetros:
+
+- **Algoritmo**: PBKDF2 (Password-Based Key Derivation Function 2)
+- **Función Hash**: SHA256
+- **Iteraciones**: 720,000 (estándar OWASP recomendado)
+- **Salt**: Generado automáticamente por Django para cada contraseña
+- **Mecanismo**: Implementado por defecto en Django mediante `django.contrib.auth.hashers.PBKDF2PasswordHasher`
+
+**Características de seguridad**:
+- ✅ Las contraseñas nunca se almacenan en texto plano
+- ✅ Es computacionalmente costoso intentar descifrar una contraseña hasheada
+- ✅ Cada contraseña tiene su propio salt, previniendo ataques por diccionario
+- ✅ Compatible con los estándares de seguridad actuales (OWASP, NIST)
+
+**Configuración**: Ver `backend/config/settings.py` en la sección `PASSWORD_HASHERS`
