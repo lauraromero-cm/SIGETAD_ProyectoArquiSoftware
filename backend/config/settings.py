@@ -11,7 +11,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
     'corsheaders',
-    'api',
+    'gateway',
     'usuarios',
     'vacantes',
     'candidatos',

@@ -7,9 +7,6 @@ La arquitectura implementa el flujo:
 ```text
 Frontend React -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
 ```
-
-Esta opción sigue siendo SOA porque los clientes no consumen directamente la lógica de negocio: la API actúa como adaptador HTTP para el navegador, el **Bus TCP/ESB** desacopla y enruta mensajes, y cada servicio encapsula una responsabilidad del sistema.
-
 ## Componentes
 
 - **Frontend:** React + Vite.
@@ -34,7 +31,8 @@ Esta opción sigue siendo SOA porque los clientes no consumen directamente la l�
 ```bash
 cd sigetad-soa
 cp .env.example .env
-docker compose up --build
+sudo docker compose up --build
+sudo docker-compose build
 ```
 
 Luego abre:
@@ -127,7 +125,7 @@ sigetad-soa/
   backend/
     bus/                  # librería TCP adaptada + servidor ESB
     config/               # settings Django
-    api/                  # capa HTTP para React
+    gateway/              # capa HTTP para React
     usuarios/             # servicio usuarios
     vacantes/             # servicio vacantes
     candidatos/           # servicio candidatos
