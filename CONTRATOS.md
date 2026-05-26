@@ -503,7 +503,7 @@ Tanto solicitudes como respuestas usan JSON. La estructura depende de si es clie
       "descripcion": "Candidato postuló a Developer Senior",
       "id_usuario": 2,
       "usuario_nombre": "Juan Pérez",
-      "fecha_evento": "2026-05-24T10:30:00"
+      "fecha": "2026-05-24T10:30:00"
     }
   ]
 }

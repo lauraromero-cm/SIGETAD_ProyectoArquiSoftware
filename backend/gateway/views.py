@@ -42,6 +42,14 @@ def usuario_estado(request, id_usuario):
     return ok(call_service('USUAR', 'cambiar_estado', data, request.current_user))
 
 
+@api_view(['DELETE', 'POST'])
+@require_auth
+def usuario_delete(request, id_usuario):
+    data = parse_json(request) if request.method == 'POST' else {}
+    data['id_usuario'] = id_usuario
+    return ok(call_service('USUAR', 'eliminar_usuario', data, request.current_user))
+
+
 @api_view(['GET', 'POST'])
 @require_auth
 def vacantes(request):

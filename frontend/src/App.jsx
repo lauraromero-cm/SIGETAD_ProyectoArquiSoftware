@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Briefcase, Users, ClipboardList, History, Star, LogOut, UserRound, ShieldCheck } from 'lucide-react'
+import { Briefcase, Users, ClipboardList, History, Star, LogOut, UserRound, ShieldCheck, X } from 'lucide-react'
 import { api, authApi, clearSession, getUser, setSession } from './api.js'
 
 const firmaLogo = new URL('./firmafast-logo.png', import.meta.url).href
@@ -169,8 +169,8 @@ function PanelReclutamiento() {
     <form className="card form grid" onSubmit={submit}>
       <label>Título<input value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} required /></label>
       <label>Departamento<input value={form.departamento} onChange={e => setForm({ ...form, departamento: e.target.value })} required /></label>
-      <label>Salario mínimo<input type="number" value={form.salario_minimo} onChange={e => setForm({ ...form, salario_minimo: Number(e.target.value) })} /></label>
-      <label>Salario máximo<input type="number" value={form.salario_maximo} onChange={e => setForm({ ...form, salario_maximo: Number(e.target.value) })} /></label>
+      <label>Salario mínimo<input type="text" placeholder="Ej: 1500000" value={form.salario_minimo ? Number(form.salario_minimo).toLocaleString('es-CL') : ''} onChange={e => setForm({ ...form, salario_minimo: parseInt(e.target.value.replace(/\./g, '')) || 0 })} /></label>
+      <label>Salario máximo<input type="text" placeholder="Ej: 2500000" value={form.salario_maximo ? Number(form.salario_maximo).toLocaleString('es-CL') : ''} onChange={e => setForm({ ...form, salario_maximo: parseInt(e.target.value.replace(/\./g, '')) || 0 })} /></label>
       <label className="full">Descripción<textarea value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} required /></label>
       <label className="full">Requisitos<textarea value={form.requisitos} onChange={e => setForm({ ...form, requisitos: e.target.value })} /></label>
       <button className="primary">Crear vacante</button>
@@ -181,6 +181,7 @@ function PanelReclutamiento() {
 
 function PortalCandidato() {
   const [vacantes, setVacantes] = useState([])
+  const [postulaciones, setPostulaciones] = useState([])
   const [perfil, setPerfil] = useState(null)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
@@ -188,6 +189,7 @@ function PortalCandidato() {
   async function load() {
     setVacantes(await api('/vacantes/'))
     setPerfil(await api('/candidatos/me/'))
+    setPostulaciones(await api('/postulaciones/'))
   }
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
 
@@ -202,9 +204,13 @@ function PortalCandidato() {
   async function postular(id) {
     try {
       await api('/postulaciones/', { method: 'POST', body: JSON.stringify({ id_vacante: id }) })
-      setMsg('Postulación registrada')
+      setMsg('¡Felicidades! Tu postulación fue registrada correctamente.')
+      setTimeout(() => setMsg(''), 4000)
+      load()
     } catch (e) { setError(e.message) }
   }
+
+  const vacantePostulada = (id) => postulaciones.some(p => p.id_vacante === id)
 
   return <section>
     <Header title="Portal Candidato" subtitle="Gestiona tu perfil y postula a vacantes abiertas." />
@@ -229,7 +235,17 @@ function PortalCandidato() {
       <button className="primary">Guardar perfil</button>
     </form>}
     <h3>Vacantes disponibles</h3>
-    <div className="cards">{vacantes.map(v => <div className="card" key={v.id_vacante}><h3>{v.titulo}</h3><p>{v.descripcion}</p><small>{v.departamento} · ${Number(v.salario_minimo).toLocaleString()} - ${Number(v.salario_maximo).toLocaleString()}</small><button onClick={() => postular(v.id_vacante)}>Postular</button></div>)}</div>
+    <div className="cards">{vacantes.map(v => {
+      const postulada = vacantePostulada(v.id_vacante)
+      return <div className="card" key={v.id_vacante}>
+        <h3>{v.titulo}</h3>
+        <p>{v.descripcion}</p>
+        <small>{v.departamento} · ${Number(v.salario_minimo).toLocaleString()} - ${Number(v.salario_maximo).toLocaleString()}</small>
+        <button disabled={postulada} onClick={() => postular(v.id_vacante)} style={{background: postulada ? '#ccc' : '', cursor: postulada ? 'not-allowed' : 'pointer'}}>
+          {postulada ? '✓ Ya postulaste' : 'Postular'}
+        </button>
+      </div>
+    })}</div>
   </section>
 }
 
@@ -292,8 +308,19 @@ function Administracion() {
   async function load() { setUsuarios(await api('/usuarios/')) }
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
   async function submit(e) { e.preventDefault(); try { await api('/usuarios/', { method: 'POST', body: JSON.stringify(form) }); setForm({ nombre: '', correo: '', rol: 'analista', contrasena: 'admin123' }); await load() } catch (e) { setError(e.message) } }
+  
+  async function deleteUsuario(id, nombre) {
+    alert(`¿Está seguro que desea eliminar al usuario "${nombre}"?`)
+    if (!confirm('Esta acción es irreversible. ¿Desea continuar?')) return
+    try {
+      await api(`/usuarios/${id}/delete/`, { method: 'DELETE' })
+      await load()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
 
-  return <section><Header title="Panel Administración" subtitle="Gestión simple de usuarios y roles." />{error && <div className="error">{error}</div>}<form className="card form grid" onSubmit={submit}><label>Nombre<input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required /></label><label>Correo<input type="email" value={form.correo} onChange={e => setForm({ ...form, correo: e.target.value })} required /></label><label>Rol<select value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value })}><option value="admin">admin</option><option value="analista">analista</option><option value="jefe_area">jefe_area</option><option value="candidato">candidato</option></select></label><label>Contraseña<input value={form.contrasena} onChange={e => setForm({ ...form, contrasena: e.target.value })} /></label><button className="primary">Crear usuario</button></form><div className="card"><table><thead><tr><th>ID</th><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th></tr></thead><tbody>{usuarios.map(u => <tr key={u.id_usuario}><td>{u.id_usuario}</td><td>{u.nombre}</td><td>{u.correo}</td><td>{u.rol}</td><td><Badge>{u.estado}</Badge></td></tr>)}</tbody></table></div></section>
+  return <section><Header title="Panel Administración" subtitle="Gestión simple de usuarios y roles." />{error && <div className="error">{error}</div>}<form className="card form grid" onSubmit={submit}><label>Nombre<input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required /></label><label>Correo<input type="email" value={form.correo} onChange={e => setForm({ ...form, correo: e.target.value })} required /></label><label>Rol<select value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value })}><option value="admin">admin</option><option value="analista">analista</option><option value="jefe_area">jefe_area</option><option value="candidato">candidato</option></select></label><label>Contraseña<input value={form.contrasena} onChange={e => setForm({ ...form, contrasena: e.target.value })} /></label><button className="primary">Crear usuario</button></form><div className="card"><table><thead><tr><th>ID</th><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody>{usuarios.map(u => <tr key={u.id_usuario}><td>{u.id_usuario}</td><td>{u.nombre}</td><td>{u.correo}</td><td>{u.rol}</td><td><Badge>{u.estado}</Badge></td><td><button className="danger" style={{padding: '4px 8px', background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444'}} onClick={() => deleteUsuario(u.id_usuario, u.nombre)} title="Eliminar usuario"><X size={18} /></button></td></tr>)}</tbody></table></div></section>
 }
 
 function Historial() {

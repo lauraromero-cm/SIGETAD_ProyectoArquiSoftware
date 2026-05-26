@@ -1,6 +1,7 @@
 from django.contrib.auth.hashers import make_password, check_password
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from datetime import datetime
 
 from usuarios.models import Usuario
 from vacantes.models import Vacante
@@ -111,6 +112,13 @@ def handle_usuarios(action, data, user):
         usuario.save(update_fields=['estado'])
         return usuario_to_dict(usuario)
 
+    if action == 'eliminar_usuario':
+        require_roles(user, ['admin'])
+        usuario = Usuario.objects.get(id_usuario=data.get('id_usuario'))
+        usuario_dict = usuario_to_dict(usuario)
+        usuario.delete()
+        return {'mensaje': 'Usuario eliminado correctamente', 'usuario': usuario_dict}
+
     raise ValueError('Operación de usuarios no reconocida')
 
 
@@ -205,6 +213,12 @@ def handle_postulaciones(action, data, user):
         require_roles(user, ['candidato'])
         candidato = Candidato.objects.get(id_usuario_id=user['id_usuario'])
         vacante = Vacante.objects.get(id_vacante=data.get('id_vacante'), estado=Vacante.ESTADO_ABIERTA)
+        
+        # Validar que el candidato no esté ya postulado a esta vacante
+        existe = Postulacion.objects.filter(id_candidato=candidato, id_vacante=vacante).exists()
+        if existe:
+            raise ValueError('Ya has postulado a esta vacante')
+        
         with transaction.atomic():
             p = Postulacion.objects.create(
                 id_candidato=candidato,
@@ -300,9 +314,37 @@ def handle_evaluaciones(action, data, user):
 def handle_historial(action, data, user):
     if action == 'listar_historial':
         require_user(user)
-        qs = Historial.objects.select_related('id_usuario')
+        qs = Historial.objects.select_related('id_usuario', 'id_postulacion')
+        
+        # Filtro por postulación
         if data.get('id_postulacion'):
             qs = qs.filter(id_postulacion_id=data['id_postulacion'])
+        
+        # Filtro por tipo de evento
+        if data.get('tipo'):
+            qs = qs.filter(tipo=data['tipo'])
+        
+        # Filtro por usuario que realizó la acción
+        if data.get('id_usuario'):
+            qs = qs.filter(id_usuario_id=data['id_usuario'])
+        
+        # Filtro por rango de fechas
+        if data.get('fecha_desde'):
+            fecha_desde = datetime.fromisoformat(data['fecha_desde']).date() if isinstance(data['fecha_desde'], str) else data['fecha_desde']
+            qs = qs.filter(fecha__date__gte=fecha_desde)
+        
+        if data.get('fecha_hasta'):
+            fecha_hasta = datetime.fromisoformat(data['fecha_hasta']).date() if isinstance(data['fecha_hasta'], str) else data['fecha_hasta']
+            qs = qs.filter(fecha__date__lte=fecha_hasta)
+        
+        # Búsqueda de texto en descripción
+        if data.get('q'):
+            qs = qs.filter(descripcion__icontains=data['q'])
+        
+        # Ordenamiento (por defecto más reciente primero)
+        orden = data.get('orden', '-fecha')
+        qs = qs.order_by(orden)
+        
         return [historial_to_dict(h) for h in qs]
 
     if action == 'registrar_evento':
