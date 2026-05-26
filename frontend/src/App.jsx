@@ -253,12 +253,25 @@ function VacantesTable({ vacantes, onCerrar }) {
   return <div className="card"><table><thead><tr><th>ID</th><th>Título</th><th>Departamento</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{vacantes.map(v => <tr key={v.id_vacante}><td>{v.id_vacante}</td><td>{v.titulo}</td><td>{v.departamento}</td><td><Badge>{v.estado}</Badge></td><td>{v.estado === 'abierta' && <button onClick={() => onCerrar(v.id_vacante)}>Cerrar</button>}</td></tr>)}</tbody></table></div>
 }
 
-function Postulaciones() {
+function Postulaciones({ mine }) {
   const user = getUser()
   const [items, setItems] = useState([])
+  const [evaluaciones, setEvaluaciones] = useState({})
   const [error, setError] = useState('')
+  const [expandido, setExpandido] = useState(null)
 
-  async function load() { setItems(await api('/postulaciones/')) }
+  async function load() { 
+    const postulaciones = await api('/postulaciones/')
+    setItems(postulaciones)
+    if (mine) {
+      const evals = await api('/evaluaciones/')
+      const evalMap = {}
+      evals.forEach(e => {
+        evalMap[e.id_postulacion] = e
+      })
+      setEvaluaciones(evalMap)
+    }
+  }
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
 
   async function change(id, estado) {
@@ -266,7 +279,60 @@ function Postulaciones() {
     await load()
   }
 
-  return <section><Header title="Postulaciones" subtitle="Seguimiento del estado de candidatos." />{error && <div className="error">{error}</div>}<div className="card"><table><thead><tr><th>ID</th><th>Candidato</th><th>Vacante</th><th>Estado</th><th>Fecha</th>{user?.rol !== 'candidato' && <th>Cambiar estado</th>}</tr></thead><tbody>{items.map(p => <tr key={p.id_postulacion}><td>{p.id_postulacion}</td><td>{p.candidato_nombre}</td><td>{p.vacante_titulo}</td><td><Badge>{p.estado}</Badge></td><td>{p.fecha_postulacion?.slice(0,10)}</td>{user?.rol !== 'candidato' && <td><select value={p.estado} onChange={e => change(p.id_postulacion, e.target.value)}>{ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}</select></td>}</tr>)}</tbody></table></div></section>
+  return <section>
+    <Header title={mine ? "Mis Postulaciones" : "Postulaciones"} subtitle={mine ? "Seguimiento de tus candidaturas y evaluaciones." : "Seguimiento del estado de candidatos."} />
+    {error && <div className="error">{error}</div>}
+    <div className="card">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Candidato</th>
+            <th>Vacante</th>
+            <th>Estado</th>
+            <th>Fecha</th>
+            {mine && <th>Evaluación</th>}
+            {!mine && <th>Cambiar estado</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(p => (
+            <React.Fragment key={p.id_postulacion}>
+              <tr>
+                <td>{p.id_postulacion}</td>
+                <td>{p.candidato_nombre}</td>
+                <td>{p.vacante_titulo}</td>
+                <td><Badge>{p.estado}</Badge></td>
+                <td>{p.fecha_postulacion?.slice(0,10)}</td>
+                {mine && <td>
+                  {evaluaciones[p.id_postulacion] ? (
+                    <button onClick={() => setExpandido(expandido === p.id_postulacion ? null : p.id_postulacion)} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', textDecoration: 'underline'}}>
+                      Ver evaluación
+                    </button>
+                  ) : (
+                    <span style={{color: '#999', fontSize: '0.9em'}}>Sin evaluar</span>
+                  )}
+                </td>}
+                {!mine && <td><select value={p.estado} onChange={e => change(p.id_postulacion, e.target.value)}>{ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}</select></td>}
+              </tr>
+              {mine && expandido === p.id_postulacion && evaluaciones[p.id_postulacion] && (
+                <tr style={{background: '#f9fafb'}}>
+                  <td colSpan="6" style={{padding: '20px'}}>
+                    <div style={{borderLeft: '4px solid #3b82f6', paddingLeft: '15px'}}>
+                      <h4 style={{margin: '0 0 10px 0', color: '#1f2937'}}>Evaluación</h4>
+                      <p style={{margin: '5px 0'}}><strong>Calificación:</strong> {evaluaciones[p.id_postulacion].calificacion}/5</p>
+                      <p style={{margin: '5px 0'}}><strong>Evaluador:</strong> {evaluaciones[p.id_postulacion].evaluador_nombre || 'Sin información'}</p>
+                      <p style={{margin: '5px 0', whiteSpace: 'pre-wrap'}}><strong>Comentarios:</strong><br />{evaluaciones[p.id_postulacion].comentarios}</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
 }
 
 function Candidatos() {

@@ -301,8 +301,14 @@ def handle_evaluaciones(action, data, user):
         return evaluacion_to_dict(e)
 
     if action == 'listar_evaluaciones':
-        require_roles(user, ['admin', 'jefe_area', 'analista'])
+        require_user(user)
         qs = Evaluacion.objects.select_related('id_usuario')
+        
+        # Si es candidato, solo mostrar evaluaciones de sus propias postulaciones
+        if user.get('rol') == 'candidato':
+            candidato = Candidato.objects.get(id_usuario_id=user['id_usuario'])
+            qs = qs.filter(id_postulacion__id_candidato=candidato)
+        
         if data.get('id_postulacion'):
             qs = qs.filter(id_postulacion_id=data['id_postulacion'])
         return [evaluacion_to_dict(e) for e in qs]
