@@ -390,12 +390,233 @@ function Administracion() {
 }
 
 function Historial() {
-  const [id, setId] = useState('')
+  const [filters, setFilters] = useState({id_postulacion: '', tipo: '', q: ''})
   const [items, setItems] = useState([])
+  const [stats, setStats] = useState({total: 0, por_tipo: {}})
   const [error, setError] = useState('')
-  async function load() { setItems(await api(`/historial/${id ? `?id_postulacion=${id}` : ''}`)) }
-  useEffect(() => { load().catch(e => setError(e.message)) }, [])
-  return <section><Header title="Historial" subtitle="Trazabilidad de eventos del proceso." />{error && <div className="error">{error}</div>}<div className="toolbar"><input placeholder="ID postulación opcional" value={id} onChange={e => setId(e.target.value)} /><button onClick={load}>Consultar</button></div><div className="card"><table><thead><tr><th>Fecha</th><th>Postulación</th><th>Tipo</th><th>Descripción</th><th>Usuario</th></tr></thead><tbody>{items.map(h => <tr key={h.id_historial}><td>{h.fecha?.slice(0,16).replace('T',' ')}</td><td>{h.id_postulacion}</td><td><Badge>{h.tipo}</Badge></td><td>{h.descripcion}</td><td>{h.usuario_nombre}</td></tr>)}</tbody></table></div></section>
+  const [expandedId, setExpandedId] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  
+  const loadData = async (searchFilters = {}) => {
+    try {
+      setLoading(true)
+      setError('')
+      const params = new URLSearchParams()
+      if (searchFilters.id_postulacion) params.append('id_postulacion', searchFilters.id_postulacion)
+      if (searchFilters.tipo) params.append('tipo', searchFilters.tipo)
+      if (searchFilters.q) params.append('q', searchFilters.q)
+      
+      const url = params.toString() ? `/historial?${params}` : `/historial`
+      const data = await api(url)
+      setItems(data || [])
+      
+      // Calcular estadísticas
+      const total = (data || []).length
+      const por_tipo = {}
+      data?.forEach(h => {
+        por_tipo[h.tipo] = (por_tipo[h.tipo] || 0) + 1
+      })
+      setStats({total, por_tipo})
+    } catch (e) {
+      setError(e.message || 'Error al cargar historial')
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // Carga inicial
+  useEffect(() => {
+    loadData()
+  }, [])
+  
+  const handleFilter = (key, value) => {
+    setFilters(prev => ({...prev, [key]: value}))
+  }
+  
+  const handleSearch = () => {
+    loadData(filters)
+  }
+  
+  const handleReset = () => {
+    setFilters({id_postulacion: '', tipo: '', q: ''})
+    setExpandedId(null)
+    loadData()
+  }
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSearch()
+    }
+  }
+  
+  const tiposUnicos = [...new Set(items.map(h => h.tipo))]
+  const isFiltered = filters.id_postulacion || filters.tipo || filters.q
+  
+  return (
+    <section>
+      <Header title="Historial" subtitle="Trazabilidad completa de eventos del proceso." />
+      {error && <div className="error">{error}</div>}
+      
+      {/* Barra de búsqueda principal */}
+      <div className="toolbar" style={{gap: '8px'}}>
+        <input 
+          placeholder="Buscar: descripción, usuario, candidato, vacante..." 
+          value={filters.q}
+          onChange={e => handleFilter('q', e.target.value)}
+          onKeyPress={handleKeyPress}
+          style={{flex: 1}}
+        />
+        <button onClick={handleSearch} disabled={loading} style={{padding: '8px 20px'}}>
+          {loading ? 'Buscando...' : 'Buscar'}
+        </button>
+        <button onClick={() => setShowFilters(!showFilters)} style={{padding: '8px 16px', background: showFilters ? '#007bff' : '#6c757d'}}>
+          Filtros {isFiltered && <span style={{marginLeft: '4px', fontWeight: 'bold'}}>({Object.values(filters).filter(Boolean).length})</span>}
+        </button>
+      </div>
+      
+      {/* Filtros opcionales */}
+      {showFilters && (
+        <div className="card" style={{marginBottom: '12px', padding: '12px', background: '#f8f9fa', borderRadius: '4px'}}>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px'}}>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>ID Postulación</label>
+              <input 
+                placeholder="Ej: 1, 5, 10" 
+                value={filters.id_postulacion}
+                onChange={e => handleFilter('id_postulacion', e.target.value)}
+                onKeyPress={handleKeyPress}
+                style={{width: '100%', padding: '6px', fontSize: '12px'}}
+              />
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>Tipo de Evento</label>
+              <select 
+                value={filters.tipo}
+                onChange={e => handleFilter('tipo', e.target.value)}
+                style={{width: '100%', padding: '6px', fontSize: '12px'}}
+              >
+                <option value="">Todos los tipos</option>
+                {tiposUnicos.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div style={{display: 'flex', alignItems: 'flex-end', gap: '6px'}}>
+              <button onClick={handleReset} style={{flex: 1, padding: '6px', fontSize: '12px'}}>Limpiar filtros</button>
+              <button onClick={handleSearch} style={{flex: 1, padding: '6px', fontSize: '12px', background: '#28a745', color: 'white'}}>Aplicar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Estadísticas */}
+      {items.length > 0 && (
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px', marginBottom: '12px'}}>
+          <div style={{padding: '8px', background: '#e7f3ff', borderRadius: '4px', textAlign: 'center'}}>
+            <div style={{fontSize: '12px', color: '#666'}}>Total registros</div>
+            <div style={{fontSize: '18px', fontWeight: 'bold', color: '#007bff'}}>{stats.total}</div>
+          </div>
+          {Object.entries(stats.por_tipo).map(([tipo, count]) => (
+            <div key={tipo} style={{padding: '8px', background: '#f0f0f0', borderRadius: '4px', textAlign: 'center'}}>
+              <div style={{fontSize: '11px', color: '#666'}}>{tipo}</div>
+              <div style={{fontSize: '16px', fontWeight: 'bold'}}>{count}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Tabla de resultados */}
+      <div className="card">
+        {items.length === 0 ? (
+          <div style={{padding: '24px', textAlign: 'center', color: '#999'}}>
+            {loading ? 'Cargando...' : isFiltered ? 'No se encontraron registros' : 'Sin registros'}
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Postulación</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+                <th>Usuario</th>
+                <th>Entidad</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(h => (
+                <React.Fragment key={h.id_historial}>
+                  <tr style={{cursor: 'pointer', backgroundColor: h.is_deleted ? '#ffebee' : 'inherit', borderLeft: '3px solid ' + (h.tipo === 'cambio_campo' ? '#ff9800' : '#2196F3')}}>
+                    <td>{h.fecha?.slice(0, 16).replace('T', ' ')}</td>
+                    <td><strong>#{h.id_postulacion}</strong></td>
+                    <td><Badge>{h.tipo}</Badge></td>
+                    <td style={{maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis'}}>{h.descripcion}</td>
+                    <td><small>{h.usuario_nombre}</small></td>
+                    <td><small>{h.id_entidad_tipo || '-'}</small></td>
+                    <td>
+                      <button onClick={() => setExpandedId(expandedId === h.id_historial ? null : h.id_historial)} style={{padding: '4px 8px', cursor: 'pointer', background: 'none', border: 'none', fontSize: '14px'}}>
+                        {expandedId === h.id_historial ? '▼' : '▶'}
+                      </button>
+                    </td>
+                  </tr>
+                  {expandedId === h.id_historial && (
+                    <tr>
+                      <td colSpan="7">
+                        <div style={{padding: '16px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px', lineHeight: '1.6'}}>
+                          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px'}}>
+                            <div>
+                              <div style={{marginBottom: '12px'}}>
+                                <strong>Información del evento</strong>
+                                <div style={{marginTop: '8px', fontSize: '12px'}}>
+                                  <div><strong>ID Historial:</strong> {h.id_historial}</div>
+                                  <div><strong>Fecha:</strong> {h.fecha}</div>
+                                  <div><strong>Usuario:</strong> {h.usuario_nombre || h.id_usuario}</div>
+                                  <div><strong>Tipo:</strong> {h.tipo}</div>
+                                </div>
+                              </div>
+                              <div>
+                                <strong>Entidad auditada</strong>
+                                <div style={{marginTop: '8px', fontSize: '12px', background: '#fff', padding: '8px', borderRadius: '2px'}}>
+                                  <div><strong>Tipo:</strong> {h.id_entidad_tipo || 'N/A'}</div>
+                                  <div><strong>ID:</strong> {h.id_entidad_referencia || 'N/A'}</div>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <div>
+                                <strong>Descripción completa</strong>
+                                <div style={{marginTop: '8px', fontSize: '12px', background: '#fff', padding: '8px', borderRadius: '2px', maxHeight: '120px', overflow: 'auto'}}>
+                                  {h.descripcion}
+                                </div>
+                              </div>
+                              {h.cambios_detalles && Object.keys(h.cambios_detalles).length > 0 && (
+                                <div style={{marginTop: '12px'}}>
+                                  <strong>Cambios detectados</strong>
+                                  <pre style={{margin: '8px 0', padding: '8px', backgroundColor: '#f0f0f0', borderRadius: '2px', overflow: 'auto', fontSize: '11px', maxHeight: '100px'}}>
+                                    {JSON.stringify(h.cambios_detalles, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {h.is_deleted && (
+                                <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#ffebee', borderRadius: '2px', color: '#c62828', fontSize: '12px'}}>
+                                  <strong>MARCADO COMO ELIMINADO</strong>
+                                  <div>{h.fecha_eliminacion?.slice(0, 16).replace('T', ' ')}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  )
 }
 
 function Header({ title, subtitle }) { return <div className="header"><h1>{title}</h1><p>{subtitle}</p></div> }

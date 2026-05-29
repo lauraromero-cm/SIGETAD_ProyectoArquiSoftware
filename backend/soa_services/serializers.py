@@ -88,4 +88,10 @@ def historial_to_dict(h):
         'id_usuario': h.id_usuario_id,
         'usuario_nombre': getattr(h.id_usuario, 'nombre', None),
         'fecha': iso(h.fecha),
+        # Campos nuevos para auditoría mejorada
+        'cambios_detalles': h.cambios_detalles or {},
+        'is_deleted': h.is_deleted,
+        'fecha_eliminacion': iso(h.fecha_eliminacion),
+        'id_entidad_tipo': h.id_entidad_tipo,
+        'id_entidad_referencia': h.id_entidad_referencia,
     }

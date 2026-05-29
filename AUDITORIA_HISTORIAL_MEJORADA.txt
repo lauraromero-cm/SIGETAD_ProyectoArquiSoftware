@@ -1,0 +1,638 @@
+================================================================================
+OPERACIONES DE AUDITORÍA Y HISTORIAL MEJORADAS - SIGETAD
+================================================================================
+
+Documento que especifica las nuevas operaciones de auditoría implementadas en 
+el Servicio de Historial (HISTO) para garantizar inmutabilidad, trazabilidad 
+completa y capacidad de reportes.
+
+================================================================================
+1. CAMBIOS IMPLEMENTADOS AL MODELO HISTORIAL
+================================================================================
+
+NUEVOS CAMPOS EN TABLA 'historial':
+
+cambios_detalles (JSON)
+───────────────────────
+- Tipo: JSONField
+- Almacena cambios estructurados: {campo, valor_anterior, valor_nuevo}
+- Ejemplo:
+  {
+    "campo": "estado",
+    "valor_anterior": "postulado",
+    "valor_nuevo": "en_revision"
+  }
+
+is_deleted (Boolean)
+────────────────────
+- Tipo: BooleanField
+- Default: False
+- Propósito: Soft delete (marcar como eliminado sin borrar físicamente)
+- Garantiza inmutabilidad del historial
+
+fecha_eliminacion (DateTime)
+────────────────────────────
+- Tipo: DateTimeField (nullable)
+- Se completa cuando un evento se marca como eliminado
+- Auditoría de eliminaciones
+
+id_entidad_tipo (String)
+────────────────────────
+- Tipo: CharField (choices)
+- Opciones: 'postulacion', 'vacante', 'candidato', 'usuario', 'evaluacion'
+- Permite auditar no solo postulaciones sino cualquier entidad
+
+id_entidad_referencia (BigInteger)
+──────────────────────────────────
+- Tipo: BigIntegerField (nullable)
+- ID de la entidad siendo auditada
+- Ejemplo: si tipo='vacante', referencia=5 → audita vacante con id_vacante=5
+
+NUEVOS ÍNDICES PARA OPTIMIZACIÓN:
+
+- idx_hist_usuario_fecha: (id_usuario, fecha DESC)
+  → Auditar acción de usuario X es O(log n)
+
+- idx_hist_entidad_fecha: (id_entidad_tipo, id_entidad_referencia, fecha DESC)
+  → Timeline de cambios a una entidad es O(log n)
+
+- idx_hist_tipo_fecha: (tipo, fecha DESC)
+  → Filtrar por tipo de evento es O(log n)
+
+CONSTRAINT DE INTEGRIDAD:
+
+CHECK historial_immutable_check:
+  (is_deleted = false OR fecha_eliminacion IS NOT NULL)
+  
+  Garantiza:
+  - Si is_deleted = true, DEBE tener fecha_eliminacion
+  - Si is_deleted = false, fecha_eliminacion DEBE ser NULL
+  - Evita inconsistencias
+
+
+================================================================================
+2. NUEVAS OPERACIONES DE AUDITORÍA - SERVICIO HISTO
+================================================================================
+
+OPERACIÓN 1: listar_historial (mejorada)
+═════════════════════════════════════════
+
+Contrato:
+─────────
+{
+  "action": "listar_historial",
+  "data": {
+    "id_postulacion": 5,           // (opcional) filtrar por postulación
+    "tipo": "cambio_campo",        // (opcional) filtrar por tipo
+    "id_usuario": 2,               // (opcional) filtrar por usuario
+    "fecha_desde": "2026-05-01",   // (opcional) ISO format
+    "fecha_hasta": "2026-05-28",   // (opcional) ISO format
+    "q": "estado cambió",          // (opcional) búsqueda en descripción
+    "orden": "-fecha"              // (opcional) ordenamiento
+  },
+  "user": {...}
+}
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": [
+    {
+      "id_historial": 1,
+      "id_postulacion": 5,
+      "tipo": "cambio_campo",
+      "descripcion": "Estado cambió de \"postulado\" a \"en_revision\"",
+      "id_usuario": 2,
+      "usuario_nombre": "Laura Analista",
+      "fecha": "2026-05-28T10:30:00Z",
+      "cambios_detalles": {
+        "campo": "estado",
+        "valor_anterior": "postulado",
+        "valor_nuevo": "en_revision"
+      },
+      "is_deleted": false,
+      "fecha_eliminacion": null,
+      "id_entidad_tipo": "postulacion",
+      "id_entidad_referencia": 5
+    },
+    ...
+  ]
+}
+
+Mejoras:
+- ✅ Filtra is_deleted=false (no muestra eventos eliminados)
+- ✅ Incluye cambios_detalles en respuesta
+- ✅ Soporta múltiples filtros simultáneamente
+
+
+OPERACIÓN 2: auditar_usuario
+═════════════════════════════
+
+Propósito: Listar TODAS las acciones que realizó un usuario específico
+
+Contrato:
+─────────
+{
+  "action": "auditar_usuario",
+  "data": {
+    "id_usuario": 2,              // REQUERIDO: usuario a auditar
+    "fecha_desde": "2026-05-01",  // (opcional)
+    "fecha_hasta": "2026-05-28"   // (opcional)
+  },
+  "user": {...}
+}
+
+Restricción: Solo admin puede usar esta operación
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": [
+    {
+      "id_historial": 1,
+      "tipo": "postulacion",
+      "descripcion": "Candidato postuló a Desarrollador Backend Django",
+      "fecha": "2026-05-28T10:00:00Z",
+      "usuario_nombre": "Juan Candidato",
+      "id_postulacion": 5,
+      ...
+    },
+    {
+      "id_historial": 3,
+      "tipo": "cambio_campo",
+      "descripcion": "Estado cambió de \"postulado\" a \"en_revision\"",
+      "fecha": "2026-05-28T11:30:00Z",
+      "usuario_nombre": "Laura Analista",
+      "cambios_detalles": {
+        "campo": "estado",
+        "valor_anterior": "postulado",
+        "valor_nuevo": "en_revision"
+      },
+      ...
+    },
+    ...
+  ]
+}
+
+Casos de uso:
+- Investigación: "¿Qué hizo el usuario 2 el 28 de mayo?"
+- Auditoría: "¿Quién modificó la vacante 10?"
+- Compliance: "Reporte de acciones de usuario X entre fechas Y-Z"
+
+
+OPERACIÓN 3: auditar_entidad
+═════════════════════════════
+
+Propósito: Ver TIMELINE COMPLETO de cambios realizados a una entidad específica
+
+Contrato:
+─────────
+{
+  "action": "auditar_entidad",
+  "data": {
+    "id_entidad": 10,                    // REQUERIDO: ID de la entidad
+    "tipo_entidad": "vacante"            // REQUERIDO: tipo de entidad
+  },
+  "user": {...}
+}
+
+Tipo de entidad válidos: postulacion, vacante, candidato, usuario, evaluacion
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": [
+    {
+      "id_historial": 1,
+      "tipo": "cambio_campo",
+      "descripcion": "Campo 'estado' cambió de 'abierta' a 'cerrada'",
+      "fecha": "2026-05-28T15:00:00Z",
+      "usuario_nombre": "Laura Analista",
+      "cambios_detalles": {
+        "campo": "estado",
+        "valor_anterior": "abierta",
+        "valor_nuevo": "cerrada"
+      },
+      "id_entidad_tipo": "vacante",
+      "id_entidad_referencia": 10
+    },
+    {
+      "id_historial": 2,
+      "tipo": "cambio_campo",
+      "descripcion": "Campo 'salario_maximo' cambió de '1800000' a '2000000'",
+      "fecha": "2026-05-28T14:30:00Z",
+      "usuario_nombre": "Admin SysAdmin",
+      "cambios_detalles": {
+        "campo": "salario_maximo",
+        "valor_anterior": "1800000",
+        "valor_nuevo": "2000000"
+      },
+      ...
+    },
+    ...
+  ]
+}
+
+Casos de uso:
+- Timeline visual: "Todos los cambios a la vacante #10"
+- Trazabilidad: "¿Cuándo cambió el salario y de quién fue?"
+- Investigación: "Mostrar historial completo de una postulación"
+
+
+OPERACIÓN 4: registrar_cambio_detallado
+════════════════════════════════════════
+
+Propósito: Registrar un cambio estructurado con antes/después
+
+Contrato:
+─────────
+{
+  "action": "registrar_cambio_detallado",
+  "data": {
+    "id_postulacion": 5,              // (opcional) referencia a postulación
+    "id_entidad_tipo": "vacante",     // REQUERIDO: tipo de entidad
+    "id_entidad_referencia": 10,      // REQUERIDO: ID de la entidad
+    "campo": "titulo",                // REQUERIDO: nombre del campo
+    "valor_anterior": "Dev Sénior",   // REQUERIDO: valor antes
+    "valor_nuevo": "Dev Júnior"       // REQUERIDO: valor después
+  },
+  "user": {...}
+}
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": {
+    "id_historial": 125,
+    "tipo": "cambio_campo",
+    "descripcion": "Campo 'titulo' cambió de 'Dev Sénior' a 'Dev Júnior'",
+    "fecha": "2026-05-28T16:00:00Z",
+    "usuario_nombre": "Laura Analista",
+    "cambios_detalles": {
+      "campo": "titulo",
+      "valor_anterior": "Dev Sénior",
+      "valor_nuevo": "Dev Júnior"
+    },
+    ...
+  }
+}
+
+Casos de uso:
+- Cuando se edita una vacante, registrar: campo, valor_anterior, valor_nuevo
+- Cuando se evalúa candidato, registrar: campo="calificacion", valores
+
+
+OPERACIÓN 5: soft_delete_evento
+════════════════════════════════
+
+Propósito: Marcar un evento como eliminado SIN BORRAR FÍSICAMENTE (inmutabilidad)
+
+Contrato:
+─────────
+{
+  "action": "soft_delete_evento",
+  "data": {
+    "id_historial": 125  // REQUERIDO: ID del evento a marcar como eliminado
+  },
+  "user": {...}
+}
+
+Restricción: Solo admin
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": {
+    "mensaje": "Evento marcado como eliminado",
+    "id_historial": 125
+  }
+}
+
+Efecto:
+- is_deleted = true
+- fecha_eliminacion = ahora
+- Evento NO aparece en listar_historial (filtro is_deleted=False)
+- Evento SIGUE EN BD para auditoría forense
+
+¿Cuándo usar?
+- Error administrativo: "Registramos mal este evento, marcarlo como eliminado"
+- Mandato legal: Necesitamos que algo desaparezca pero dejar rastro
+
+
+OPERACIÓN 6: exportar_historial_csv
+═════════════════════════════════════
+
+Propósito: Exportar historial a CSV para reportes, análisis externo
+
+Contrato:
+─────────
+{
+  "action": "exportar_historial_csv",
+  "data": {
+    "id_postulacion": 5,   // (opcional) filtrar por postulación
+    "id_usuario": 2,       // (opcional) filtrar por usuario
+    "tipo": "cambio_campo" // (opcional) filtrar por tipo
+  },
+  "user": {...}
+}
+
+Restricción: Admin, Analista
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": {
+    "format": "csv",
+    "filename": "historial_export_20260528_160000.csv",
+    "rows_count": 47,
+    "data": "ID Historial,Fecha,Tipo,Descripción,Usuario,ID Postulación,Entidad Tipo,Cambios Detalles\n1,2026-05-28T10:00:00,postulacion,Candidato postuló...,"
+  }
+}
+
+Formato CSV:
+════════════
+ID Historial | Fecha                | Tipo              | Descripción                        | Usuario          | ID Postulación | Entidad Tipo | Cambios Detalles
+─────────────┼──────────────────────┼───────────────────┼────────────────────────────────────┼──────────────────┼────────────────┼──────────────┼──────────────────
+1            | 2026-05-28T10:00:00  | postulacion       | Candidato postuló a vacante...     | Juan Candidato   | 5              | postulacion  |
+3            | 2026-05-28T11:30:00  | cambio_campo      | Estado cambió de postulado a...    | Laura Analista   | 5              | postulacion  | {'campo': 'estado', 'valor_anterior': 'postulado', 'valor_nuevo': 'en_revision'}
+
+Casos de uso:
+- Generar reportes en Excel/Google Sheets
+- Auditoría externa
+- Backups manuales de historial
+- Integración con herramientas de análisis (Tableau, etc)
+
+
+OPERACIÓN 7: reporte_cambios_entidad
+════════════════════════════════════
+
+Propósito: Timeline visual de TODOS LOS CAMBIOS de un entidad con QUIÉN, CUÁNDO, QUÉ
+
+Contrato:
+─────────
+{
+  "action": "reporte_cambios_entidad",
+  "data": {
+    "id_entidad": 10,           // REQUERIDO: ID de la entidad
+    "tipo_entidad": "vacante"   // REQUERIDO: tipo de entidad
+  },
+  "user": {...}
+}
+
+Respuesta:
+──────────
+{
+  "ok": true,
+  "data": {
+    "id_entidad": 10,
+    "tipo_entidad": "vacante",
+    "total_cambios": 3,
+    "timeline": [
+      {
+        "fecha": "2026-05-28T16:00:00",
+        "usuario": "Laura Analista",
+        "campo": "salario_maximo",
+        "valor_anterior": "1800000",
+        "valor_nuevo": "2000000",
+        "descripcion": "Campo 'salario_maximo' cambió de '1800000' a '2000000'"
+      },
+      {
+        "fecha": "2026-05-28T15:00:00",
+        "usuario": "Admin SysAdmin",
+        "campo": "estado",
+        "valor_anterior": "abierta",
+        "valor_nuevo": "cerrada",
+        "descripcion": "Campo 'estado' cambió de 'abierta' a 'cerrada'"
+      },
+      {
+        "fecha": "2026-05-27T09:30:00",
+        "usuario": "Jefe Area",
+        "campo": "requisitos",
+        "valor_anterior": "Python, Django",
+        "valor_nuevo": "Python, Django, Kubernetes",
+        "descripcion": "Campo 'requisitos' cambió..."
+      }
+    ]
+  }
+}
+
+Visualización ideal (Timeline UI):
+──────────────────────────────────
+┌─ Vacante #10 - Timeline de Cambios
+│
+├─ 2026-05-28 16:00 | Laura Analista
+│  └─ salario_maximo: 1,800,000 → 2,000,000
+│
+├─ 2026-05-28 15:00 | Admin SysAdmin  
+│  └─ estado: abierta → cerrada
+│
+└─ 2026-05-27 09:30 | Jefe Area
+   └─ requisitos: Python, Django → Python, Django, Kubernetes
+
+Casos de uso:
+- Dashboard de auditoría: mostrar timeline visual
+- Compliance: demostrar quién cambió qué y cuándo
+- Auditoría forense: investigar cambios sospechosos
+
+
+================================================================================
+3. PROTECCIÓN CONTRA ELIMINACIÓN (INMUTABILIDAD)
+================================================================================
+
+ANTES (INSEGURO):
+────────────────
+DELETE FROM historial WHERE id_historial = 125;
+→ ¿Quién lo eliminó? ¿Cuándo? ¿Por qué? NO HAY RASTRO.
+
+DESPUÉS (SEGURO - SOFT DELETE):
+───────────────────────────────
+POST /api/historial {
+  "action": "soft_delete_evento",
+  "data": {"id_historial": 125}
+}
+
+Resultado:
+- UPDATE historial
+  SET is_deleted = true, 
+      fecha_eliminacion = NOW()
+  WHERE id_historial = 125;
+
+- El evento SIGUE EN LA BD (¿quién lo eliminó?, marca de tiempo)
+- Query de auditoría sigue viendo: "Fue eliminado el 28/05 a las 16:00"
+- No aparece en reportes normales (is_deleted=false)
+- Pero está para auditoría forense si necesitan investigar
+
+
+CONSTRAINT DE INTEGRIDAD EN BD:
+───────────────────────────────
+CHECK (is_deleted = false OR fecha_eliminacion IS NOT NULL)
+
+Garantiza:
+✅ Si alguien intenta UPDATE es_deleted=true sin fecha → ERROR
+✅ Si alguien intenta UPDATE es_deleted=false CON fecha → ERROR
+✅ Integridad referencial garantizada a nivel BD
+
+
+================================================================================
+4. EJEMPLOS DE USO COMPLETOS
+================================================================================
+
+CASO 1: Timeline de una postulación
+═══════════════════════════════════
+
+Ejecutar:
+POST /api/historial
+{
+  "action": "auditar_entidad",
+  "data": {
+    "id_entidad": 5,
+    "tipo_entidad": "postulacion"
+  }
+}
+
+Respuesta (ejemplo):
+[
+  {
+    "fecha": "2026-05-28T16:30:00Z",
+    "usuario": "Jefe Area",
+    "tipo": "evaluacion",
+    "descripcion": "Evaluación registrada con calificación 4",
+    "cambios_detalles": {"calificacion": "4", "comentarios": "Excelente"}
+  },
+  {
+    "fecha": "2026-05-28T15:00:00Z",
+    "usuario": "Laura Analista",
+    "tipo": "cambio_campo",
+    "descripcion": "Estado cambió de \"en_revision\" a \"evaluacion\"",
+    "cambios_detalles": {
+      "campo": "estado",
+      "valor_anterior": "en_revision",
+      "valor_nuevo": "evaluacion"
+    }
+  },
+  {
+    "fecha": "2026-05-28T11:30:00Z",
+    "usuario": "Laura Analista",
+    "tipo": "cambio_campo",
+    "descripcion": "Estado cambió de \"postulado\" a \"en_revision\"",
+    "cambios_detalles": {
+      "campo": "estado",
+      "valor_anterior": "postulado",
+      "valor_nuevo": "en_revision"
+    }
+  },
+  {
+    "fecha": "2026-05-28T10:00:00Z",
+    "usuario": "Juan Candidato",
+    "tipo": "postulacion",
+    "descripcion": "Candidato postuló a Desarrollador Backend Django"
+  }
+]
+
+Timeline visual:
+────────────────
+10:00 Juan Candidato    → Postuló
+11:30 Laura Analista    → Estado: postulado → en_revision
+15:00 Laura Analista    → Estado: en_revision → evaluacion
+16:30 Jefe Area         → Calificación: 4/5
+
+
+CASO 2: Auditoría de quién cambió la vacante
+═════════════════════════════════════════════
+
+Ejecutar:
+POST /api/historial
+{
+  "action": "auditar_entidad",
+  "data": {
+    "id_entidad": 10,
+    "tipo_entidad": "vacante"
+  }
+}
+
+Descubrir:
+- Laura Analista cambió salario de 1.2M a 2.0M (28/05 16:00)
+- Admin cambió estado a cerrada (28/05 15:00)
+- Jefe Area agregó requisitos (27/05 09:30)
+
+
+CASO 3: Investigación - "¿Qué hizo Laura el 28 de mayo?"
+═══════════════════════════════════════════════════════════
+
+Ejecutar:
+POST /api/historial
+{
+  "action": "auditar_usuario",
+  "data": {
+    "id_usuario": 2,
+    "fecha_desde": "2026-05-28",
+    "fecha_hasta": "2026-05-28"
+  }
+}
+
+Descubrir:
+- Laura cambió estado de 3 postulaciones
+- Laura cambió salario de vacante #10
+- Laura registró 2 eventos manuales
+
+
+CASO 4: Exportar historial para auditoría externa
+═════════════════════════════════════════════════════
+
+Ejecutar:
+POST /api/historial
+{
+  "action": "exportar_historial_csv",
+  "data": {
+    "fecha_desde": "2026-05-01",
+    "fecha_hasta": "2026-05-31"
+  }
+}
+
+Obtener:
+- Archivo CSV con 500+ eventos del mes
+- Importar en Excel/Google Sheets
+- Analizar con auditor externo
+
+
+================================================================================
+5. TABLA COMPARATIVA: ANTES vs. DESPUÉS
+================================================================================
+
+ASPECTO                    │ ANTES          │ DESPUÉS
+───────────────────────────┼────────────────┼─────────────────────────────
+Auditoría por usuario      │ ❌ No          │ ✅ SI - operación auditar_usuario
+Timeline de entidad        │ ❌ Manual      │ ✅ SQL - operación auditar_entidad
+Cambios detalledosistema           │ ❌ Solo texto  │ ✅ JSON - {campo, anterior, nuevo}
+Eliminación de eventos     │ ❌ DELETE      │ ✅ Soft delete - is_deleted=true
+Trazabilidad de eliminación│ ❌ No          │ ✅ SI - fecha_eliminacion
+Exportación a CSV          │ ❌ No          │ ✅ SI - exportar_historial_csv
+Inmutabilidad              │ ❌ No          │ ✅ CHECK constraint en BD
+Reportes de cambios        │ ❌ No          │ ✅ SI - reporte_cambios_entidad
+Protección del historial   │ ⚠️  ORM level  │ ✅ BD level + ORM level
+
+
+================================================================================
+6. MIGRACIONES REQUERIDAS
+================================================================================
+
+Ejecutar después de deployar este código:
+
+```bash
+cd backend
+python manage.py makemigrations
+python manage.py migrate
+
+# Crear índices manualmente si es necesario:
+python manage.py dbshell
+```
+
+Verificar que se creó la migración: 0002_ampliar_historial.py
+
+================================================================================

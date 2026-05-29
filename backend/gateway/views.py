@@ -128,5 +128,16 @@ def evaluaciones(request):
 @require_auth
 def historial(request):
     if request.method == 'GET':
-        return ok(call_service('HISTO', 'listar_historial', {'id_postulacion': request.GET.get('id_postulacion')}, request.current_user))
+        filters = {
+            'id_postulacion': request.GET.get('id_postulacion'),
+            'tipo': request.GET.get('tipo'),
+            'q': request.GET.get('q'),
+            'id_usuario': request.GET.get('id_usuario'),
+            'fecha_desde': request.GET.get('fecha_desde'),
+            'fecha_hasta': request.GET.get('fecha_hasta'),
+            'orden': request.GET.get('orden', '-fecha'),
+        }
+        # Remover valores None para no confundir al handler
+        filters = {k: v for k, v in filters.items() if v is not None}
+        return ok(call_service('HISTO', 'listar_historial', filters, request.current_user))
     return ok(call_service('HISTO', 'registrar_evento', parse_json(request), request.current_user), status=201)

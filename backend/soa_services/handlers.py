@@ -250,6 +250,7 @@ def handle_postulaciones(action, data, user):
     if action == 'actualizar_estado':
         require_roles(user, ['admin', 'analista'])
         p = Postulacion.objects.select_related('id_vacante', 'id_candidato').get(id_postulacion=data.get('id_postulacion'))
+        estado_anterior = p.estado
         estado = data.get('estado')
         if estado not in dict(Postulacion.ESTADOS):
             raise ValueError('Estado de postulación inválido')
@@ -257,11 +258,21 @@ def handle_postulaciones(action, data, user):
             p.estado = estado
             p.notas = data.get('notas', p.notas)
             p.save(update_fields=['estado', 'notas'])
+            
+            # Registro con cambios detalladossistema
+            cambios = {
+                'campo': 'estado',
+                'valor_anterior': estado_anterior,
+                'valor_nuevo': estado,
+            }
             Historial.objects.create(
                 id_postulacion=p,
-                tipo='estado',
-                descripcion=f'Estado actualizado a {estado}',
+                tipo=Historial.TIPO_CAMBIO_CAMPO,
+                descripcion=f'Estado cambió de "{estado_anterior}" a "{estado}"',
                 id_usuario_id=user['id_usuario'],
+                cambios_detalles=cambios,
+                id_entidad_tipo=Historial.ENTIDAD_POSTULACION,
+                id_entidad_referencia=p.id_postulacion,
             )
         return postulacion_to_dict(p)
 
@@ -320,11 +331,16 @@ def handle_evaluaciones(action, data, user):
 def handle_historial(action, data, user):
     if action == 'listar_historial':
         require_user(user)
-        qs = Historial.objects.select_related('id_usuario', 'id_postulacion')
+        qs = Historial.objects.select_related('id_usuario', 'id_postulacion').filter(is_deleted=False)
         
         # Filtro por postulación
         if data.get('id_postulacion'):
-            qs = qs.filter(id_postulacion_id=data['id_postulacion'])
+            try:
+                id_postulacion = int(data['id_postulacion'])
+                qs = qs.filter(id_postulacion_id=id_postulacion)
+            except (ValueError, TypeError):
+                # Si no es un ID válido, continuar sin filtro
+                pass
         
         # Filtro por tipo de evento
         if data.get('tipo'):
@@ -343,9 +359,18 @@ def handle_historial(action, data, user):
             fecha_hasta = datetime.fromisoformat(data['fecha_hasta']).date() if isinstance(data['fecha_hasta'], str) else data['fecha_hasta']
             qs = qs.filter(fecha__date__lte=fecha_hasta)
         
-        # Búsqueda de texto en descripción
+        # Búsqueda de texto - en descripción o en nombre del usuario
         if data.get('q'):
-            qs = qs.filter(descripcion__icontains=data['q'])
+            q_value = data['q']
+            # Opción 1: Buscar en descripción
+            query_filter = Q(descripcion__icontains=q_value)
+            
+            # Opción 2: Buscar usuarios con ese nombre
+            matching_usuarios = Usuario.objects.filter(nombre__icontains=q_value).values_list('id_usuario', flat=True)
+            if matching_usuarios:
+                query_filter = query_filter | Q(id_usuario_id__in=matching_usuarios)
+            
+            qs = qs.filter(query_filter)
         
         # Ordenamiento (por defecto más reciente primero)
         orden = data.get('orden', '-fecha')
@@ -357,10 +382,159 @@ def handle_historial(action, data, user):
         require_roles(user, ['admin', 'analista', 'jefe_area'])
         h = Historial.objects.create(
             id_postulacion_id=data.get('id_postulacion'),
-            tipo=data.get('tipo', 'evento'),
+            tipo=data.get('tipo', Historial.TIPO_EVENTO),
             descripcion=data.get('descripcion', ''),
             id_usuario_id=user['id_usuario'],
+            id_entidad_tipo=data.get('id_entidad_tipo', Historial.ENTIDAD_POSTULACION),
+            id_entidad_referencia=data.get('id_entidad_referencia'),
         )
         return historial_to_dict(h)
+
+    if action == 'auditar_usuario':
+        # Listar todos los eventos que hizo un usuario específico
+        require_roles(user, ['admin'])
+        id_usuario_a_auditar = data.get('id_usuario')
+        if not id_usuario_a_auditar:
+            raise ValueError('id_usuario es requerido')
+        
+        qs = Historial.objects.filter(
+            id_usuario_id=id_usuario_a_auditar,
+            is_deleted=False
+        ).select_related('id_usuario', 'id_postulacion').order_by('-fecha')
+        
+        # Filtros opcionales
+        if data.get('fecha_desde'):
+            fecha_desde = datetime.fromisoformat(data['fecha_desde']).date() if isinstance(data['fecha_desde'], str) else data['fecha_desde']
+            qs = qs.filter(fecha__date__gte=fecha_desde)
+        
+        if data.get('fecha_hasta'):
+            fecha_hasta = datetime.fromisoformat(data['fecha_hasta']).date() if isinstance(data['fecha_hasta'], str) else data['fecha_hasta']
+            qs = qs.filter(fecha__date__lte=fecha_hasta)
+        
+        return [historial_to_dict(h) for h in qs]
+
+    if action == 'auditar_entidad':
+        # Listar todos los cambios de una entidad específica (vacante, candidato, etc)
+        require_user(user)
+        id_entidad = data.get('id_entidad')
+        tipo_entidad = data.get('tipo_entidad')
+        
+        if not id_entidad or not tipo_entidad:
+            raise ValueError('id_entidad y tipo_entidad son requeridos')
+        
+        qs = Historial.objects.filter(
+            id_entidad_referencia=id_entidad,
+            id_entidad_tipo=tipo_entidad,
+            is_deleted=False
+        ).select_related('id_usuario').order_by('-fecha')
+        
+        return [historial_to_dict(h) for h in qs]
+
+    if action == 'registrar_cambio_detallado':
+        # Registra un cambio de campo con antes/después
+        require_user(user)
+        cambios = {
+            'campo': data.get('campo'),
+            'valor_anterior': data.get('valor_anterior'),
+            'valor_nuevo': data.get('valor_nuevo'),
+        }
+        
+        h = Historial.objects.create(
+            id_postulacion_id=data.get('id_postulacion'),
+            tipo=Historial.TIPO_CAMBIO_CAMPO,
+            descripcion=f"Campo '{data.get('campo')}' cambió de '{data.get('valor_anterior')}' a '{data.get('valor_nuevo')}'",
+            id_usuario_id=user['id_usuario'],
+            cambios_detalles=cambios,
+            id_entidad_tipo=data.get('id_entidad_tipo', Historial.ENTIDAD_POSTULACION),
+            id_entidad_referencia=data.get('id_entidad_referencia'),
+        )
+        return historial_to_dict(h)
+
+    if action == 'soft_delete_evento':
+        # Marcar un evento como eliminado sin borrar físicamente (auditoría inmutable)
+        require_roles(user, ['admin'])
+        h = Historial.objects.get(id_historial=data.get('id_historial'))
+        h.marcar_eliminado(user['id_usuario'])
+        return {'mensaje': 'Evento marcado como eliminado', 'id_historial': h.id_historial}
+
+    if action == 'exportar_historial_csv':
+        # Exportar historial en formato CSV
+        require_roles(user, ['admin', 'analista'])
+        import csv
+        from io import StringIO
+        
+        qs = Historial.objects.filter(is_deleted=False).select_related('id_usuario', 'id_postulacion')
+        
+        # Aplicar filtros
+        if data.get('id_postulacion'):
+            qs = qs.filter(id_postulacion_id=data['id_postulacion'])
+        
+        if data.get('id_usuario'):
+            qs = qs.filter(id_usuario_id=data['id_usuario'])
+        
+        if data.get('tipo'):
+            qs = qs.filter(tipo=data['tipo'])
+        
+        # Generar CSV en memoria
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'ID Historial', 'Fecha', 'Tipo', 'Descripción', 'Usuario', 
+            'ID Postulación', 'Entidad Tipo', 'Cambios Detalles'
+        ])
+        
+        for h in qs.order_by('-fecha'):
+            writer.writerow([
+                h.id_historial,
+                h.fecha.isoformat() if h.fecha else '',
+                h.tipo,
+                h.descripcion,
+                h.id_usuario.nombre if h.id_usuario else '',
+                h.id_postulacion_id or '',
+                h.id_entidad_tipo,
+                str(h.cambios_detalles) if h.cambios_detalles else '',
+            ])
+        
+        return {
+            'format': 'csv',
+            'filename': f'historial_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+            'data': output.getvalue(),
+            'rows_count': qs.count(),
+        }
+
+    if action == 'reporte_cambios_entidad':
+        # Generar reporte de cambios realizados a una entidad
+        require_user(user)
+        id_entidad = data.get('id_entidad')
+        tipo_entidad = data.get('tipo_entidad')
+        
+        if not id_entidad or not tipo_entidad:
+            raise ValueError('id_entidad y tipo_entidad son requeridos')
+        
+        cambios = Historial.objects.filter(
+            id_entidad_referencia=id_entidad,
+            id_entidad_tipo=tipo_entidad,
+            tipo=Historial.TIPO_CAMBIO_CAMPO,
+            is_deleted=False
+        ).select_related('id_usuario').order_by('-fecha')
+        
+        timeline = []
+        for cambio in cambios:
+            detalles = cambio.cambios_detalles or {}
+            timeline.append({
+                'fecha': cambio.fecha.isoformat(),
+                'usuario': cambio.id_usuario.nombre,
+                'campo': detalles.get('campo'),
+                'valor_anterior': detalles.get('valor_anterior'),
+                'valor_nuevo': detalles.get('valor_nuevo'),
+                'descripcion': cambio.descripcion,
+            })
+        
+        return {
+            'id_entidad': id_entidad,
+            'tipo_entidad': tipo_entidad,
+            'total_cambios': len(timeline),
+            'timeline': timeline,
+        }
 
     raise ValueError('Operación de historial no reconocida')
