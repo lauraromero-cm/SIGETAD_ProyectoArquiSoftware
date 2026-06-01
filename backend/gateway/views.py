@@ -149,6 +149,69 @@ def candidato_archivo(request, id_candidato, tipo):
     )
 
 
+@api_view(['GET'])
+@require_auth
+def candidato_me_url_archivo(request, tipo):
+    perfil = call_service('CANDI', 'mi_perfil', user=request.current_user)
+    id_candidato = perfil.get('id_candidato')
+    
+    call_service('CANDI', 'obtener_archivo_perfil', {
+        'id_candidato': id_candidato,
+        'tipo': tipo,
+    }, request.current_user)
+    token = signing.dumps(
+        {'id_candidato': id_candidato, 'tipo': tipo, 'user': request.current_user},
+        salt='candidate-file',
+        compress=True,
+    )
+    path = reverse('candidato-me-archivo', kwargs={'tipo': tipo})
+    return ok({
+        'url': request.build_absolute_uri(f'{path}?token={token}'),
+        'download_url': request.build_absolute_uri(f'{path}?token={token}&download=1'),
+        'expira_en_segundos': settings.CANDIDATE_FILE_TOKEN_SECONDS,
+    })
+
+
+@api_view(['GET'])
+def candidato_me_archivo(request, tipo):
+    token = request.GET.get('token', '')
+    try:
+        payload = signing.loads(token, salt='candidate-file', max_age=settings.CANDIDATE_FILE_TOKEN_SECONDS)
+    except signing.BadSignature as exc:
+        raise ValueError('Token inválido o expirado') from exc
+
+    id_candidato = payload.get('id_candidato')
+    if payload.get('tipo') != tipo:
+        raise ValueError('Token no corresponde al archivo solicitado')
+    
+    # El token ya valida que el usuario es el dueño
+    user = payload.get('user') or {}
+
+    archivo = call_service('CANDI', 'obtener_archivo_perfil', {
+        'id_candidato': id_candidato,
+        'tipo': tipo,
+    }, user)
+
+    base = Path(settings.MEDIA_ROOT).resolve()
+    absolute_path = (base / archivo['ruta_relativa']).resolve()
+    if base not in absolute_path.parents or not absolute_path.exists():
+        raise Http404('Archivo no encontrado')
+
+    content_type, _ = mimetypes.guess_type(str(absolute_path))
+    as_attachment = request.GET.get('download', '').lower() in ('1', 'true', 'yes')
+    call_service('CANDI', 'registrar_acceso_archivo_perfil', {
+        'id_candidato': id_candidato,
+        'tipo': tipo,
+        'accion': 'descarga' if as_attachment else 'visualización',
+    }, user)
+    return FileResponse(
+        absolute_path.open('rb'),
+        as_attachment=as_attachment,
+        filename=absolute_path.name,
+        content_type=content_type or 'application/octet-stream',
+    )
+
+
 @api_view(['GET', 'POST'])
 @require_auth
 def candidato_me(request):

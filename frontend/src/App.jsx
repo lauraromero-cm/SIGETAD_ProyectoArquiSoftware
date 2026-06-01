@@ -187,6 +187,7 @@ function PortalCandidato() {
   const [fotoFile, setFotoFile] = useState(null)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
+  const [archivosMios, setArchivosMios] = useState({ cv: null, foto: null })
 
   async function load() {
     setVacantes(await api('/vacantes/'))
@@ -204,9 +205,11 @@ function PortalCandidato() {
       }
       if (cvFile) body.append('cv', cvFile)
       if (fotoFile) body.append('foto_perfil', fotoFile)
-      setPerfil(await api('/candidatos/me/', { method: 'POST', body }))
+      const nuevosPerfil = await api('/candidatos/me/', { method: 'POST', body })
+      setPerfil(nuevosPerfil)
       setCvFile(null)
       setFotoFile(null)
+      setArchivosMios({ cv: null, foto: null })
       setMsg('Perfil guardado correctamente')
     } catch (e) { setError(e.message) }
   }
@@ -218,6 +221,23 @@ function PortalCandidato() {
       setTimeout(() => setMsg(''), 4000)
       load()
     } catch (e) { setError(e.message) }
+  }
+
+  async function abrirArchivoMio(tipo, download = false) {
+    try {
+      const result = await api(`/candidatos/me/archivo/${tipo}/url/`)
+      window.open(download ? result.download_url : result.url, '_blank', 'noopener,noreferrer')
+    } catch (e) { setError(e.message) }
+  }
+
+  async function cargarFotoPreviewMia() {
+    if (!perfil.foto_perfil || archivosMios.foto) return
+    try {
+      const result = await api(`/candidatos/me/archivo/foto/url/`)
+      setArchivosMios(current => ({ ...current, foto: result.url }))
+    } catch {
+      setArchivosMios(current => ({ ...current, foto: '' }))
+    }
   }
 
   const vacantePostulada = (id) => postulaciones.some(p => p.id_vacante === id)
@@ -242,8 +262,23 @@ function PortalCandidato() {
       </select></label>
       <label>CV<input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => setCvFile(e.target.files?.[0] || null)} /></label>
       <label>Foto perfil<input type="file" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tif,.tiff,image/jpeg,image/png,image/gif,image/bmp,image/webp,image/tiff" onChange={e => setFotoFile(e.target.files?.[0] || null)} /></label>
-      <label>CV guardado<input value={perfil.cv || ''} readOnly /></label>
-      <label>Foto guardada<input value={perfil.foto_perfil || ''} readOnly /></label>
+      <div>
+        <label>CV guardado</label>
+        {perfil.cv ? <div className="actions">
+          <button type="button" onClick={() => abrirArchivoMio('cv')}>Ver</button>
+          <button type="button" onClick={() => abrirArchivoMio('cv', true)}>Descargar</button>
+          <small>{perfil.cv}</small>
+        </div> : <small>Sin CV</small>}
+      </div>
+      <div>
+        <label>Foto guardada</label>
+        {perfil.foto_perfil ? <div className="actions" onMouseEnter={cargarFotoPreviewMia}>
+          {archivosMios.foto && <img className="avatar-preview" src={archivosMios.foto} alt="Tu foto de perfil" />}
+          <button type="button" onClick={() => abrirArchivoMio('foto')}>Ver</button>
+          <button type="button" onClick={() => abrirArchivoMio('foto', true)}>Descargar</button>
+          <small>{perfil.foto_perfil}</small>
+        </div> : <small>Sin foto</small>}
+      </div>
       <button className="primary">Guardar perfil</button>
     </form>}
     <h3>Vacantes disponibles</h3>

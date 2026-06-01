@@ -12,6 +12,8 @@ urlpatterns = [
     path('vacantes/<int:id_vacante>/', views.vacante_detail),
     path('vacantes/<int:id_vacante>/cerrar/', views.vacante_cerrar),
     path('candidatos/', views.candidatos),
+    path('candidatos/me/archivo/<str:tipo>/url/', views.candidato_me_url_archivo),
+    path('candidatos/me/archivo/<str:tipo>/', views.candidato_me_archivo, name='candidato-me-archivo'),
     path('candidatos/<int:id_candidato>/archivo/<str:tipo>/url/', views.candidato_url_archivo),
     path('candidatos/<int:id_candidato>/archivo/<str:tipo>/', views.candidato_archivo, name='candidato-archivo'),
     path('candidatos/me/', views.candidato_me),
