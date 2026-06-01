@@ -1,6 +1,7 @@
 import json
 from functools import wraps
 from django.http import JsonResponse
+from django.http import Http404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -37,6 +38,10 @@ def api_view(methods):
                 return fail(exc, 400)
             except ValueError as exc:
                 return fail(exc, 400)
+            except PermissionError as exc:
+                return fail(exc, 403)
+            except Http404 as exc:
+                return fail(exc, 404)
             except Exception as exc:
                 return fail(exc, 500)
         return wrapper

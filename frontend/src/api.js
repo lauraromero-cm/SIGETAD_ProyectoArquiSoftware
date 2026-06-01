@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export function getToken() {
   return localStorage.getItem('sigetad_token')
@@ -21,8 +21,9 @@ export function clearSession() {
 
 export async function api(path, options = {}) {
   const token = getToken()
+  const isFormData = options.body instanceof FormData
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers || {})
   }
   if (token) headers.Authorization = `Bearer ${token}`

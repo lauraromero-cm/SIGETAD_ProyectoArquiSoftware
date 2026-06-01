@@ -19,6 +19,7 @@ Frontend React -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
   - postulaciones
   - evaluaciones
   - historial
+  - documentos
 - **Base de datos:** PostgreSQL centralizada.
 
 ## Requisitos
@@ -113,6 +114,19 @@ El bus enruta por código de servicio:
 | Postulaciones | POSTU |
 | Evaluaciones | EVALU |
 | Historial | HISTO |
+| Documentos | DOCUM |
+
+## Documentos PDF
+
+El gateway expone carga `multipart/form-data` y mantiene la operación de negocio dentro de SOA mediante el servicio `DOCUM`.
+
+- `POST /api/documentos/`: sube un PDF en el campo `archivo` o `file`. Opcionalmente acepta `id_postulacion`.
+- `GET /api/documentos/`: lista documentos visibles para el usuario autenticado.
+- `GET /api/documentos/<id>/url-descarga/`: genera una URL firmada y temporal.
+- `GET /api/documentos/<id>/download/?token=...`: descarga usando el token firmado.
+- `GET /api/documentos/auditoria/`: lista auditoría de documentos para roles internos.
+
+Validaciones implementadas: extensión PDF, `content-type`, firma `%PDF-`, tamaño máximo configurable, rechazo del archivo de prueba antivirus EICAR y escaneo con `clamscan` cuando está disponible en el contenedor/sistema. La persistencia por defecto es disco local en `backend/uploads/documentos`. Variables relevantes: `MEDIA_ROOT`, `DOCUMENTOS_MAX_UPLOAD_BYTES` y `DOCUMENTOS_DOWNLOAD_TOKEN_SECONDS`.
 
 ## Decisión sobre CV y foto de perfil
 

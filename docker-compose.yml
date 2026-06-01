@@ -55,7 +55,7 @@ services:
 
   service_usuarios:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service USUAR"
+    command: sh -c "python manage.py run_soa_service USUAR"
     volumes:
       - ./backend:/app
     environment: &backend_env
@@ -76,7 +76,7 @@ services:
 
   service_vacantes:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service VACAN"
+    command: sh -c "python manage.py run_soa_service VACAN"
     volumes:
       - ./backend:/app
     environment: *backend_env
@@ -88,7 +88,7 @@ services:
 
   service_candidatos:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service CANDI"
+    command: sh -c "python manage.py run_soa_service CANDI"
     volumes:
       - ./backend:/app
     environment: *backend_env
@@ -100,7 +100,7 @@ services:
 
   service_postulaciones:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service POSTU"
+    command: sh -c "python manage.py run_soa_service POSTU"
     volumes:
       - ./backend:/app
     environment: *backend_env
@@ -112,7 +112,7 @@ services:
 
   service_evaluaciones:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service EVALU"
+    command: sh -c "python manage.py run_soa_service EVALU"
     volumes:
       - ./backend:/app
     environment: *backend_env
@@ -124,7 +124,19 @@ services:
 
   service_historial:
     build: ./backend
-    command: sh -c "python manage.py migrate && python manage.py run_soa_service HISTO"
+    command: sh -c "python manage.py run_soa_service HISTO"
+    volumes:
+      - ./backend:/app
+    environment: *backend_env
+    depends_on:
+      db:
+        condition: service_healthy
+      bus:
+        condition: service_started
+
+  service_documentos:
+    build: ./backend
+    command: sh -c "python manage.py run_soa_service DOCUM"
     volumes:
       - ./backend:/app
     environment: *backend_env

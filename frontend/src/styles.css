@@ -44,6 +44,10 @@ textarea { min-height: 86px; resize: vertical; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 12px; border-bottom: 1px solid #eef2f7; text-align: left; vertical-align: top; }
 th { color: #52627a; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.actions a { color: #1d4ed8; font-weight: 700; text-decoration: none; }
+.actions a:hover { text-decoration: underline; }
+.avatar-preview { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 1px solid #d8e0ef; background: #f8fafc; }
 .badge { display: inline-block; padding: 5px 10px; border-radius: 999px; background: #eef4ff; color: #1d4ed8; font-weight: 700; font-size: 12px; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
 .toolbar input { max-width: 320px; }

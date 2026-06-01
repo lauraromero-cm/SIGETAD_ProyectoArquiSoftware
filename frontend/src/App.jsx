@@ -183,6 +183,8 @@ function PortalCandidato() {
   const [vacantes, setVacantes] = useState([])
   const [postulaciones, setPostulaciones] = useState([])
   const [perfil, setPerfil] = useState(null)
+  const [cvFile, setCvFile] = useState(null)
+  const [fotoFile, setFotoFile] = useState(null)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
@@ -196,7 +198,15 @@ function PortalCandidato() {
   async function savePerfil(e) {
     e.preventDefault()
     try {
-      setPerfil(await api('/candidatos/me/', { method: 'POST', body: JSON.stringify(perfil) }))
+      const body = new FormData()
+      for (const field of ['nombre_completo', 'email', 'telefono', 'profesion', 'experiencia_anios']) {
+        body.append(field, perfil[field] || '')
+      }
+      if (cvFile) body.append('cv', cvFile)
+      if (fotoFile) body.append('foto_perfil', fotoFile)
+      setPerfil(await api('/candidatos/me/', { method: 'POST', body }))
+      setCvFile(null)
+      setFotoFile(null)
       setMsg('Perfil guardado correctamente')
     } catch (e) { setError(e.message) }
   }
@@ -230,8 +240,10 @@ function PortalCandidato() {
         <option value="4">4 años</option>
         <option value="5+">5 o más años</option>
       </select></label>
-      <label>CV / URL<input value={perfil.cv || ''} onChange={e => setPerfil({ ...perfil, cv: e.target.value })} /></label>
-      <label>Foto perfil / URL<input value={perfil.foto_perfil || ''} onChange={e => setPerfil({ ...perfil, foto_perfil: e.target.value })} /></label>
+      <label>CV<input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => setCvFile(e.target.files?.[0] || null)} /></label>
+      <label>Foto perfil<input type="file" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tif,.tiff,image/jpeg,image/png,image/gif,image/bmp,image/webp,image/tiff" onChange={e => setFotoFile(e.target.files?.[0] || null)} /></label>
+      <label>CV guardado<input value={perfil.cv || ''} readOnly /></label>
+      <label>Foto guardada<input value={perfil.foto_perfil || ''} readOnly /></label>
       <button className="primary">Guardar perfil</button>
     </form>}
     <h3>Vacantes disponibles</h3>
@@ -339,11 +351,29 @@ function Candidatos() {
   const [items, setItems] = useState([])
   const [q, setQ] = useState('')
   const [error, setError] = useState('')
+  const [fileUrls, setFileUrls] = useState({})
 
   async function load() { setItems(await api(`/candidatos/?q=${encodeURIComponent(q)}`)) }
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
 
-  return <section><Header title="Candidatos" subtitle="Consulta de postulantes registrados." />{error && <div className="error">{error}</div>}<div className="toolbar"><input placeholder="Buscar por nombre, email o profesión" value={q} onChange={e => setQ(e.target.value)} /><button onClick={load}>Buscar</button></div><div className="card"><table><thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Profesión</th><th>Experiencia</th><th>CV</th></tr></thead><tbody>{items.map(c => <tr key={c.id_candidato}><td>{c.id_candidato}</td><td>{c.nombre_completo}</td><td>{c.email}</td><td>{c.profesion}</td><td>{c.experiencia_anios} años</td><td>{c.cv}</td></tr>)}</tbody></table></div></section>
+  async function abrirArchivo(c, tipo, download = false) {
+    try {
+      const result = await api(`/candidatos/${c.id_candidato}/archivo/${tipo}/url/`)
+      window.open(download ? result.download_url : result.url, '_blank', 'noopener,noreferrer')
+    } catch (e) { setError(e.message) }
+  }
+
+  async function cargarPreviewFoto(c) {
+    if (!c.foto_perfil || fileUrls[c.id_candidato]) return
+    try {
+      const result = await api(`/candidatos/${c.id_candidato}/archivo/foto/url/`)
+      setFileUrls(current => ({ ...current, [c.id_candidato]: result.url }))
+    } catch {
+      setFileUrls(current => ({ ...current, [c.id_candidato]: '' }))
+    }
+  }
+
+  return <section><Header title="Candidatos" subtitle="Consulta de postulantes registrados." />{error && <div className="error">{error}</div>}<div className="toolbar"><input placeholder="Buscar por nombre, email o profesión" value={q} onChange={e => setQ(e.target.value)} /><button onClick={load}>Buscar</button></div><div className="card"><table><thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Profesión</th><th>Experiencia</th><th>CV</th><th>Foto</th></tr></thead><tbody>{items.map(c => <tr key={c.id_candidato} onMouseEnter={() => cargarPreviewFoto(c)}><td>{c.id_candidato}</td><td>{c.nombre_completo}</td><td>{c.email}</td><td>{c.profesion}</td><td>{c.experiencia_anios} años</td><td>{c.cv ? <div className="actions"><button type="button" onClick={() => abrirArchivo(c, 'cv')}>Ver</button><button type="button" onClick={() => abrirArchivo(c, 'cv', true)}>Descargar</button></div> : 'Sin CV'}</td><td>{c.foto_perfil ? <div className="actions">{fileUrls[c.id_candidato] && <img className="avatar-preview" src={fileUrls[c.id_candidato]} alt={`Foto de ${c.nombre_completo}`} />}<button type="button" onClick={() => abrirArchivo(c, 'foto')}>Ver</button><button type="button" onClick={() => abrirArchivo(c, 'foto', true)}>Descargar</button></div> : 'Sin foto'}</td></tr>)}</tbody></table></div></section>
 }
 
 function Evaluaciones() {
@@ -390,7 +420,7 @@ function Administracion() {
 }
 
 function Historial() {
-  const [filters, setFilters] = useState({id_postulacion: '', tipo: '', q: ''})
+  const [filters, setFilters] = useState({id_postulacion: '', tipo: '', q: '', id_usuario: '', fecha_desde: '', fecha_hasta: '', tipo_entidad: '', id_entidad: ''})
   const [items, setItems] = useState([])
   const [stats, setStats] = useState({total: 0, por_tipo: {}})
   const [error, setError] = useState('')
@@ -406,6 +436,13 @@ function Historial() {
       if (searchFilters.id_postulacion) params.append('id_postulacion', searchFilters.id_postulacion)
       if (searchFilters.tipo) params.append('tipo', searchFilters.tipo)
       if (searchFilters.q) params.append('q', searchFilters.q)
+      if (searchFilters.id_usuario) params.append('id_usuario', searchFilters.id_usuario)
+      if (searchFilters.fecha_desde) params.append('fecha_desde', searchFilters.fecha_desde)
+      if (searchFilters.fecha_hasta) params.append('fecha_hasta', searchFilters.fecha_hasta)
+      if (searchFilters.tipo_entidad && searchFilters.id_entidad) {
+        params.append('tipo_entidad', searchFilters.tipo_entidad)
+        params.append('id_entidad', searchFilters.id_entidad)
+      }
       
       const url = params.toString() ? `/historial?${params}` : `/historial`
       const data = await api(url)
@@ -439,7 +476,7 @@ function Historial() {
   }
   
   const handleReset = () => {
-    setFilters({id_postulacion: '', tipo: '', q: ''})
+    setFilters({id_postulacion: '', tipo: '', q: '', id_usuario: '', fecha_desde: '', fecha_hasta: '', tipo_entidad: '', id_entidad: ''})
     setExpandedId(null)
     loadData()
   }
@@ -451,7 +488,7 @@ function Historial() {
   }
   
   const tiposUnicos = [...new Set(items.map(h => h.tipo))]
-  const isFiltered = filters.id_postulacion || filters.tipo || filters.q
+  const isFiltered = Object.values(filters).some(Boolean)
   
   return (
     <section>
@@ -478,13 +515,23 @@ function Historial() {
       {/* Filtros opcionales */}
       {showFilters && (
         <div className="card" style={{marginBottom: '12px', padding: '12px', background: '#f8f9fa', borderRadius: '4px'}}>
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px'}}>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px'}}>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>ID Postulación</label>
               <input 
                 placeholder="Ej: 1, 5, 10" 
                 value={filters.id_postulacion}
                 onChange={e => handleFilter('id_postulacion', e.target.value)}
+                onKeyPress={handleKeyPress}
+                style={{width: '100%', padding: '6px', fontSize: '12px'}}
+              />
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>ID Usuario</label>
+              <input
+                placeholder="Ej: 1"
+                value={filters.id_usuario}
+                onChange={e => handleFilter('id_usuario', e.target.value)}
                 onKeyPress={handleKeyPress}
                 style={{width: '100%', padding: '6px', fontSize: '12px'}}
               />
@@ -499,6 +546,29 @@ function Historial() {
                 <option value="">Todos los tipos</option>
                 {tiposUnicos.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>Fecha desde</label>
+              <input type="date" value={filters.fecha_desde} onChange={e => handleFilter('fecha_desde', e.target.value)} style={{width: '100%', padding: '6px', fontSize: '12px'}} />
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>Fecha hasta</label>
+              <input type="date" value={filters.fecha_hasta} onChange={e => handleFilter('fecha_hasta', e.target.value)} style={{width: '100%', padding: '6px', fontSize: '12px'}} />
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>Entidad</label>
+              <select value={filters.tipo_entidad} onChange={e => handleFilter('tipo_entidad', e.target.value)} style={{width: '100%', padding: '6px', fontSize: '12px'}}>
+                <option value="">Todas</option>
+                <option value="postulacion">postulacion</option>
+                <option value="vacante">vacante</option>
+                <option value="candidato">candidato</option>
+                <option value="usuario">usuario</option>
+                <option value="evaluacion">evaluacion</option>
+              </select>
+            </div>
+            <div>
+              <label style={{display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>ID Entidad</label>
+              <input placeholder="Ej: 10" value={filters.id_entidad} onChange={e => handleFilter('id_entidad', e.target.value)} onKeyPress={handleKeyPress} style={{width: '100%', padding: '6px', fontSize: '12px'}} />
             </div>
             <div style={{display: 'flex', alignItems: 'flex-end', gap: '6px'}}>
               <button onClick={handleReset} style={{flex: 1, padding: '6px', fontSize: '12px'}}>Limpiar filtros</button>

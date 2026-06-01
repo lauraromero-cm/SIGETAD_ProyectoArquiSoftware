@@ -1,14 +1,18 @@
 from django.contrib.auth.hashers import make_password, check_password
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 from datetime import datetime
+from datetime import timedelta
 
-from usuarios.models import Usuario
+from usuarios.models import LoginIntento, Usuario
 from vacantes.models import Vacante
 from candidatos.models import Candidato
 from postulaciones.models import Postulacion
 from evaluaciones.models import Evaluacion
 from historial.models import Historial
+from documentos.models import Documento, DocumentoAuditoria
 from .serializers import (
     usuario_to_dict,
     vacante_to_dict,
@@ -16,6 +20,8 @@ from .serializers import (
     postulacion_to_dict,
     evaluacion_to_dict,
     historial_to_dict,
+    documento_to_dict,
+    documento_auditoria_to_dict,
 )
 from .permissions import require_roles, require_user
 
@@ -27,6 +33,7 @@ SERVICE_CODES = {
     'POSTU': 'postulaciones',
     'EVALU': 'evaluaciones',
     'HISTO': 'historial',
+    'DOCUM': 'documentos',
 }
 
 
@@ -43,7 +50,33 @@ def handle(service_code, action, data, user):
         return handle_evaluaciones(action, data, user)
     if service_code == 'HISTO':
         return handle_historial(action, data, user)
+    if service_code == 'DOCUM':
+        return handle_documentos(action, data, user)
     raise ValueError('Servicio no reconocido')
+
+
+def _registrar_historial(user_id, descripcion, entidad_tipo=Historial.ENTIDAD_USUARIO, entidad_id=None, tipo=Historial.TIPO_EVENTO, cambios=None, id_postulacion=None):
+    if not user_id:
+        return None
+    return Historial.objects.create(
+        id_postulacion_id=id_postulacion,
+        tipo=tipo,
+        descripcion=descripcion,
+        id_usuario_id=user_id,
+        cambios_detalles=cambios or {},
+        id_entidad_tipo=entidad_tipo,
+        id_entidad_referencia=entidad_id,
+    )
+
+
+def _audit_changes(before, after, fields):
+    changes = {}
+    for field in fields:
+        old = before.get(field)
+        new = after.get(field)
+        if old != new:
+            changes[field] = {'valor_anterior': old, 'valor_nuevo': new}
+    return changes
 
 
 # ---------------- Usuarios ----------------
@@ -51,12 +84,23 @@ def handle_usuarios(action, data, user):
     if action == 'login':
         correo = data.get('correo', '').strip().lower()
         contrasena = data.get('contrasena', '')
+        ip = data.get('ip') or None
+        user_agent = (data.get('user_agent') or '')[:255]
+        desde = timezone.now() - timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
+        fallidos = LoginIntento.objects.filter(correo=correo, resultado=LoginIntento.RESULTADO_FALLIDO, fecha__gte=desde).count()
+        if fallidos >= settings.LOGIN_MAX_FAILED_ATTEMPTS:
+            LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_BLOQUEADO, ip=ip, user_agent=user_agent)
+            raise ValueError('Cuenta temporalmente bloqueada por múltiples intentos fallidos')
         try:
             usuario = Usuario.objects.get(correo=correo, estado=Usuario.ESTADO_ACTIVO)
         except Usuario.DoesNotExist:
+            LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_FALLIDO, ip=ip, user_agent=user_agent)
             raise ValueError('Credenciales inválidas')
         if not check_password(contrasena, usuario.contrasena):
+            LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_FALLIDO, ip=ip, user_agent=user_agent, id_usuario=usuario)
             raise ValueError('Credenciales inválidas')
+        LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_EXITO, ip=ip, user_agent=user_agent, id_usuario=usuario)
+        _registrar_historial(usuario.id_usuario, 'Inicio de sesión exitoso', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
         return usuario_to_dict(usuario)
 
     if action == 'registrar_candidato_usuario':
@@ -82,6 +126,7 @@ def handle_usuarios(action, data, user):
                 cv=data.get('cv', ''),
                 foto_perfil=data.get('foto_perfil', ''),
             )
+            _registrar_historial(usuario.id_usuario, 'Registro de candidato', Historial.ENTIDAD_CANDIDATO, candidato.id_candidato)
         return {'usuario': usuario_to_dict(usuario), 'candidato': candidato_to_dict(candidato)}
 
     if action == 'crear_usuario':
@@ -92,13 +137,15 @@ def handle_usuarios(action, data, user):
         contrasena = data.get('contrasena') or 'admin123'
         if rol not in dict(Usuario.ROLES):
             raise ValueError('Rol inválido')
-        usuario = Usuario.objects.create(
-            nombre=nombre,
-            correo=correo,
-            contrasena=make_password(contrasena),
-            rol=rol,
-            estado=data.get('estado') or Usuario.ESTADO_ACTIVO,
-        )
+        with transaction.atomic():
+            usuario = Usuario.objects.create(
+                nombre=nombre,
+                correo=correo,
+                contrasena=make_password(contrasena),
+                rol=rol,
+                estado=data.get('estado') or Usuario.ESTADO_ACTIVO,
+            )
+            _registrar_historial(user['id_usuario'], f'Usuario creado: {usuario.correo}', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
         return usuario_to_dict(usuario)
 
     if action == 'listar_usuarios':
@@ -108,14 +155,24 @@ def handle_usuarios(action, data, user):
     if action == 'cambiar_estado':
         require_roles(user, ['admin'])
         usuario = Usuario.objects.get(id_usuario=data.get('id_usuario'))
+        estado_anterior = usuario.estado
         usuario.estado = data.get('estado')
         usuario.save(update_fields=['estado'])
+        _registrar_historial(
+            user['id_usuario'],
+            f'Estado de usuario {usuario.correo} cambió de "{estado_anterior}" a "{usuario.estado}"',
+            Historial.ENTIDAD_USUARIO,
+            usuario.id_usuario,
+            Historial.TIPO_CAMBIO_CAMPO,
+            {'campo': 'estado', 'valor_anterior': estado_anterior, 'valor_nuevo': usuario.estado},
+        )
         return usuario_to_dict(usuario)
 
     if action == 'eliminar_usuario':
         require_roles(user, ['admin'])
         usuario = Usuario.objects.get(id_usuario=data.get('id_usuario'))
         usuario_dict = usuario_to_dict(usuario)
+        _registrar_historial(user['id_usuario'], f'Usuario eliminado: {usuario.correo}', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
         usuario.delete()
         return {'mensaje': 'Usuario eliminado correctamente', 'usuario': usuario_dict}
 
@@ -137,32 +194,56 @@ def handle_vacantes(action, data, user):
     if action == 'crear_vacante':
         require_roles(user, ['admin', 'analista'])
         creador = Usuario.objects.get(id_usuario=user['id_usuario'])
-        v = Vacante.objects.create(
-            titulo=data.get('titulo', ''),
-            descripcion=data.get('descripcion', ''),
-            departamento=data.get('departamento', ''),
-            salario_minimo=data.get('salario_minimo') or 0,
-            salario_maximo=data.get('salario_maximo') or 0,
-            requisitos=data.get('requisitos', ''),
-            estado=data.get('estado') or Vacante.ESTADO_ABIERTA,
-            creado_por=creador,
-        )
+        with transaction.atomic():
+            v = Vacante.objects.create(
+                titulo=data.get('titulo', ''),
+                descripcion=data.get('descripcion', ''),
+                departamento=data.get('departamento', ''),
+                salario_minimo=data.get('salario_minimo') or 0,
+                salario_maximo=data.get('salario_maximo') or 0,
+                requisitos=data.get('requisitos', ''),
+                estado=data.get('estado') or Vacante.ESTADO_ABIERTA,
+                creado_por=creador,
+            )
+            _registrar_historial(user['id_usuario'], f'Vacante creada: {v.titulo}', Historial.ENTIDAD_VACANTE, v.id_vacante)
         return vacante_to_dict(v)
 
     if action == 'editar_vacante':
         require_roles(user, ['admin', 'analista'])
         v = Vacante.objects.get(id_vacante=data.get('id_vacante'))
+        fields = ['titulo', 'descripcion', 'departamento', 'salario_minimo', 'salario_maximo', 'requisitos', 'estado']
+        before = {field: getattr(v, field) for field in fields}
         for field in ['titulo', 'descripcion', 'departamento', 'salario_minimo', 'salario_maximo', 'requisitos', 'estado']:
             if field in data:
                 setattr(v, field, data[field])
         v.save()
+        after = {field: getattr(v, field) for field in fields}
+        cambios = _audit_changes(before, after, fields)
+        if cambios:
+            _registrar_historial(
+                user['id_usuario'],
+                f'Vacante editada: {v.titulo}',
+                Historial.ENTIDAD_VACANTE,
+                v.id_vacante,
+                Historial.TIPO_CAMBIO_CAMPO,
+                cambios,
+            )
         return vacante_to_dict(v)
 
     if action == 'cerrar_vacante':
         require_roles(user, ['admin', 'analista'])
         v = Vacante.objects.get(id_vacante=data.get('id_vacante'))
+        estado_anterior = v.estado
         v.estado = Vacante.ESTADO_CERRADA
         v.save(update_fields=['estado'])
+        _registrar_historial(
+            user['id_usuario'],
+            f'Vacante cerrada: {v.titulo}',
+            Historial.ENTIDAD_VACANTE,
+            v.id_vacante,
+            Historial.TIPO_CAMBIO_CAMPO,
+            {'campo': 'estado', 'valor_anterior': estado_anterior, 'valor_nuevo': v.estado},
+        )
         return vacante_to_dict(v)
 
     raise ValueError('Operación de vacantes no reconocida')
@@ -185,10 +266,26 @@ def handle_candidatos(action, data, user):
                 'email': data.get('email') or usuario.correo,
             },
         )
+        fields = ['nombre_completo', 'email', 'telefono', 'profesion', 'experiencia_anios', 'cv', 'foto_perfil']
+        before = {field: getattr(candidato, field) for field in fields}
         for field in ['nombre_completo', 'email', 'telefono', 'profesion', 'experiencia_anios', 'cv', 'foto_perfil']:
             if field in data:
-                setattr(candidato, field, data[field] or (0 if field == 'experiencia_anios' else ''))
+                value = data[field]
+                if field == 'experiencia_anios':
+                    value = int(str(value or 0).replace('+', '') or 0)
+                setattr(candidato, field, value or (0 if field == 'experiencia_anios' else ''))
         candidato.save()
+        after = {field: getattr(candidato, field) for field in fields}
+        cambios = _audit_changes(before, after, fields)
+        if cambios:
+            _registrar_historial(
+                user['id_usuario'],
+                'Perfil de candidato actualizado',
+                Historial.ENTIDAD_CANDIDATO,
+                candidato.id_candidato,
+                Historial.TIPO_CAMBIO_CAMPO,
+                cambios,
+            )
         return candidato_to_dict(candidato)
 
     if action == 'listar_candidatos':
@@ -203,6 +300,49 @@ def handle_candidatos(action, data, user):
         require_roles(user, ['admin', 'analista', 'jefe_area'])
         c = Candidato.objects.get(id_candidato=data.get('id_candidato'))
         return candidato_to_dict(c)
+
+    if action == 'obtener_archivo_perfil':
+        require_user(user)
+        candidato = Candidato.objects.get(id_candidato=data.get('id_candidato'))
+        if user.get('rol') == 'candidato' and candidato.id_usuario_id != user['id_usuario']:
+            raise PermissionError('No tienes permisos para ver este archivo')
+        if user.get('rol') != 'candidato':
+            require_roles(user, ['admin', 'analista', 'jefe_area'])
+
+        tipo = data.get('tipo')
+        if tipo == 'cv':
+            ruta = candidato.cv
+        elif tipo == 'foto':
+            ruta = candidato.foto_perfil
+        else:
+            raise ValueError('Tipo de archivo inválido')
+        if not ruta:
+            raise ValueError('El candidato no tiene archivo cargado')
+        return {
+            'id_candidato': candidato.id_candidato,
+            'tipo': tipo,
+            'ruta_relativa': ruta,
+            'nombre_candidato': candidato.nombre_completo,
+        }
+
+    if action == 'registrar_acceso_archivo_perfil':
+        require_user(user)
+        candidato = Candidato.objects.get(id_candidato=data.get('id_candidato'))
+        if user.get('rol') == 'candidato' and candidato.id_usuario_id != user['id_usuario']:
+            raise PermissionError('No tienes permisos para auditar este archivo')
+        if user.get('rol') != 'candidato':
+            require_roles(user, ['admin', 'analista', 'jefe_area'])
+        tipo = data.get('tipo')
+        accion = data.get('accion', 'visualización')
+        _registrar_historial(
+            user['id_usuario'],
+            f'{accion.capitalize()} de archivo {tipo} del candidato {candidato.nombre_completo}',
+            Historial.ENTIDAD_CANDIDATO,
+            candidato.id_candidato,
+            Historial.TIPO_EVENTO,
+            {'archivo_tipo': tipo, 'accion': accion},
+        )
+        return {'mensaje': 'Acceso auditado'}
 
     raise ValueError('Operación de candidatos no reconocida')
 
@@ -349,6 +489,9 @@ def handle_historial(action, data, user):
         # Filtro por usuario que realizó la acción
         if data.get('id_usuario'):
             qs = qs.filter(id_usuario_id=data['id_usuario'])
+
+        if data.get('id_entidad') and data.get('tipo_entidad'):
+            qs = qs.filter(id_entidad_referencia=data['id_entidad'], id_entidad_tipo=data['tipo_entidad'])
         
         # Filtro por rango de fechas
         if data.get('fecha_desde'):
@@ -538,3 +681,113 @@ def handle_historial(action, data, user):
         }
 
     raise ValueError('Operación de historial no reconocida')
+
+
+# ---------------- Documentos ----------------
+def _documentos_visibles_para_usuario(user):
+    require_user(user)
+    qs = Documento.objects.select_related(
+        'id_usuario',
+        'id_postulacion',
+        'id_postulacion__id_candidato',
+        'id_postulacion__id_vacante',
+    ).filter(estado=Documento.ESTADO_DISPONIBLE)
+    if user.get('rol') == 'candidato':
+        qs = qs.filter(id_usuario_id=user['id_usuario'])
+    return qs
+
+
+def _obtener_documento_autorizado(id_documento, user):
+    qs = _documentos_visibles_para_usuario(user)
+    return qs.get(id_documento=id_documento)
+
+
+def handle_documentos(action, data, user):
+    if action == 'registrar_documento':
+        require_user(user)
+        id_postulacion = data.get('id_postulacion')
+
+        if user.get('rol') == 'candidato':
+            candidato = Candidato.objects.get(id_usuario_id=user['id_usuario'])
+            if id_postulacion:
+                Postulacion.objects.get(id_postulacion=id_postulacion, id_candidato=candidato)
+
+        with transaction.atomic():
+            documento = Documento.objects.create(
+                nombre_original=data.get('nombre_original', ''),
+                nombre_almacenado=data.get('nombre_almacenado', ''),
+                ruta_relativa=data.get('ruta_relativa', ''),
+                content_type=data.get('content_type', 'application/pdf'),
+                tamanio_bytes=int(data.get('tamanio_bytes') or 0),
+                checksum_sha256=data.get('checksum_sha256', ''),
+                id_usuario_id=user['id_usuario'],
+                id_postulacion_id=id_postulacion or None,
+            )
+            DocumentoAuditoria.objects.create(
+                id_documento=documento,
+                id_usuario_id=user['id_usuario'],
+                accion=DocumentoAuditoria.ACCION_SUBIDA,
+                detalles={
+                    'nombre_original': documento.nombre_original,
+                    'tamanio_bytes': documento.tamanio_bytes,
+                    'checksum_sha256': documento.checksum_sha256,
+                    'id_postulacion': documento.id_postulacion_id,
+                },
+            )
+        return documento_to_dict(documento)
+
+    if action == 'listar_documentos':
+        qs = _documentos_visibles_para_usuario(user)
+        if data.get('id_postulacion'):
+            qs = qs.filter(id_postulacion_id=data['id_postulacion'])
+        if data.get('id_usuario'):
+            require_roles(user, ['admin', 'analista', 'jefe_area'])
+            qs = qs.filter(id_usuario_id=data['id_usuario'])
+        if data.get('q'):
+            q = data['q']
+            qs = qs.filter(Q(nombre_original__icontains=q) | Q(id_usuario__nombre__icontains=q))
+        return [documento_to_dict(d) for d in qs]
+
+    if action == 'obtener_documento':
+        documento = _obtener_documento_autorizado(data.get('id_documento'), user)
+        return documento_to_dict(documento)
+
+    if action == 'obtener_archivo_descarga':
+        documento = _obtener_documento_autorizado(data.get('id_documento'), user)
+        return {
+            **documento_to_dict(documento),
+            'ruta_relativa': documento.ruta_relativa,
+        }
+
+    if action == 'registrar_url_generada':
+        documento = _obtener_documento_autorizado(data.get('id_documento'), user)
+        DocumentoAuditoria.objects.create(
+            id_documento=documento,
+            id_usuario_id=user['id_usuario'],
+            accion=DocumentoAuditoria.ACCION_URL_GENERADA,
+            detalles={'expira_en_segundos': data.get('expira_en_segundos')},
+        )
+        return documento_to_dict(documento)
+
+    if action == 'registrar_descarga':
+        documento = _obtener_documento_autorizado(data.get('id_documento'), user)
+        DocumentoAuditoria.objects.create(
+            id_documento=documento,
+            id_usuario_id=user['id_usuario'],
+            accion=DocumentoAuditoria.ACCION_DESCARGA,
+            detalles={'ip': data.get('ip'), 'user_agent': data.get('user_agent')},
+        )
+        return {'mensaje': 'Descarga auditada', 'id_documento': documento.id_documento}
+
+    if action == 'auditoria_documento':
+        require_roles(user, ['admin', 'analista', 'jefe_area'])
+        qs = DocumentoAuditoria.objects.select_related('id_usuario', 'id_documento')
+        if data.get('id_documento'):
+            qs = qs.filter(id_documento_id=data['id_documento'])
+        if data.get('id_usuario'):
+            qs = qs.filter(id_usuario_id=data['id_usuario'])
+        if data.get('accion'):
+            qs = qs.filter(accion=data['accion'])
+        return [documento_auditoria_to_dict(a) for a in qs]
+
+    raise ValueError('Operación de documentos no reconocida')

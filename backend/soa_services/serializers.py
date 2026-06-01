@@ -95,3 +95,34 @@ def historial_to_dict(h):
         'id_entidad_tipo': h.id_entidad_tipo,
         'id_entidad_referencia': h.id_entidad_referencia,
     }
+
+
+def documento_to_dict(d):
+    usuario = getattr(d, 'id_usuario', None)
+    postulacion = getattr(d, 'id_postulacion', None)
+    return {
+        'id_documento': d.id_documento,
+        'nombre_original': d.nombre_original,
+        'content_type': d.content_type,
+        'tamanio_bytes': d.tamanio_bytes,
+        'checksum_sha256': d.checksum_sha256,
+        'estado': d.estado,
+        'id_usuario': d.id_usuario_id,
+        'usuario_nombre': getattr(usuario, 'nombre', None),
+        'id_postulacion': d.id_postulacion_id,
+        'fecha_subida': iso(d.fecha_subida),
+        'candidato_nombre': getattr(getattr(postulacion, 'id_candidato', None), 'nombre_completo', None),
+        'vacante_titulo': getattr(getattr(postulacion, 'id_vacante', None), 'titulo', None),
+    }
+
+
+def documento_auditoria_to_dict(a):
+    return {
+        'id_auditoria': a.id_auditoria,
+        'id_documento': a.id_documento_id,
+        'id_usuario': a.id_usuario_id,
+        'usuario_nombre': getattr(a.id_usuario, 'nombre', None),
+        'accion': a.accion,
+        'fecha': iso(a.fecha),
+        'detalles': a.detalles or {},
+    }

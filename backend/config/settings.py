@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     'postulaciones',
     'evaluaciones',
     'historial',
+    'documentos',
     'soa_services',
 ]
 
@@ -47,6 +48,13 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+MEDIA_ROOT = BASE_DIR / os.getenv('MEDIA_ROOT', 'uploads')
+DOCUMENTOS_STORAGE_DIR = os.getenv('DOCUMENTOS_STORAGE_DIR', 'documentos')
+DOCUMENTOS_MAX_UPLOAD_BYTES = int(os.getenv('DOCUMENTOS_MAX_UPLOAD_BYTES', str(10 * 1024 * 1024)))
+DOCUMENTOS_DOWNLOAD_TOKEN_SECONDS = int(os.getenv('DOCUMENTOS_DOWNLOAD_TOKEN_SECONDS', str(10 * 60)))
+CANDIDATE_FILE_TOKEN_SECONDS = int(os.getenv('CANDIDATE_FILE_TOKEN_SECONDS', str(5 * 60)))
+LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv('LOGIN_MAX_FAILED_ATTEMPTS', '5'))
+LOGIN_LOCKOUT_SECONDS = int(os.getenv('LOGIN_LOCKOUT_SECONDS', str(15 * 60)))
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True

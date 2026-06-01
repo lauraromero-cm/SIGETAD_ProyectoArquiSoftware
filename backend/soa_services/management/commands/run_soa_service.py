@@ -12,7 +12,7 @@ class Command(BaseCommand):
     help = 'Levanta un servicio SOA conectado al bus TCP/ESB.'
 
     def add_arguments(self, parser):
-        parser.add_argument('service_code', type=str, help='Código de servicio de 5 caracteres: USUAR, VACAN, CANDI, POSTU, EVALU, HISTO')
+        parser.add_argument('service_code', type=str, help='Código de servicio de 5 caracteres: USUAR, VACAN, CANDI, POSTU, EVALU, HISTO, DOCUM')
 
     def handle(self, *args, **options):
         service_code = options['service_code'].upper()
