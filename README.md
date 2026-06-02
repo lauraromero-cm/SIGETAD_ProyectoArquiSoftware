@@ -32,6 +32,7 @@ Frontend React -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
 ```bash
 cd sigetad-soa
 cp .env.example .env
+sudo docker-compose down
 sudo docker compose up --build
 sudo docker-compose build
 ```
