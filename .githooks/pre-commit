@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "No se encontró Docker. No se pueden exportar los datos antes del commit."
+  exit 1
+fi
+
+if ! docker compose ps --status running backend | grep -q "sigetad_backend"; then
+  echo "El contenedor backend no está corriendo. Levanta el proyecto y vuelve a commitear:"
+  echo "  docker compose up --build"
+  exit 1
+fi
+
+docker compose exec -T backend python manage.py export_datos
+git add backend/usuarios/fixtures/datos.json
+if [ -d backend/usuarios/fixtures/uploads ]; then
+  git add backend/usuarios/fixtures/uploads
+fi

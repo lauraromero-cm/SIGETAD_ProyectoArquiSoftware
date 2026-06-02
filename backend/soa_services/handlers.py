@@ -100,7 +100,6 @@ def handle_usuarios(action, data, user):
             LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_FALLIDO, ip=ip, user_agent=user_agent, id_usuario=usuario)
             raise ValueError('Credenciales inválidas')
         LoginIntento.objects.create(correo=correo, resultado=LoginIntento.RESULTADO_EXITO, ip=ip, user_agent=user_agent, id_usuario=usuario)
-        _registrar_historial(usuario.id_usuario, 'Inicio de sesión exitoso', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
         return usuario_to_dict(usuario)
 
     if action == 'registrar_candidato_usuario':
@@ -131,21 +130,35 @@ def handle_usuarios(action, data, user):
 
     if action == 'crear_usuario':
         require_roles(user, ['admin'])
-        nombre = data.get('nombre', '')
-        correo = data.get('correo', '').strip().lower()
-        rol = data.get('rol', '')
+        nombre = (data.get('nombre') or '').strip()
+        correo = (data.get('correo') or '').strip().lower()
+        rol = (data.get('rol') or '').strip()
         contrasena = data.get('contrasena') or 'admin123'
+        estado = data.get('estado') or Usuario.ESTADO_ACTIVO
+        if not nombre or not correo:
+            raise ValueError('Nombre y correo son obligatorios')
         if rol not in dict(Usuario.ROLES):
             raise ValueError('Rol inválido')
-        with transaction.atomic():
-            usuario = Usuario.objects.create(
-                nombre=nombre,
-                correo=correo,
-                contrasena=make_password(contrasena),
-                rol=rol,
-                estado=data.get('estado') or Usuario.ESTADO_ACTIVO,
-            )
-            _registrar_historial(user['id_usuario'], f'Usuario creado: {usuario.correo}', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
+        if estado not in dict(Usuario.ESTADOS):
+            raise ValueError('Estado inválido')
+        try:
+            with transaction.atomic():
+                usuario = Usuario.objects.create(
+                    nombre=nombre,
+                    correo=correo,
+                    contrasena=make_password(contrasena),
+                    rol=rol,
+                    estado=estado,
+                )
+                if rol == Usuario.ROL_CANDIDATO:
+                    Candidato.objects.create(
+                        id_usuario=usuario,
+                        nombre_completo=nombre,
+                        email=correo,
+                    )
+                _registrar_historial(user['id_usuario'], f'Usuario creado: {usuario.correo}', Historial.ENTIDAD_USUARIO, usuario.id_usuario)
+        except IntegrityError as exc:
+            raise ValueError('Ya existe un usuario con ese correo') from exc
         return usuario_to_dict(usuario)
 
     if action == 'listar_usuarios':

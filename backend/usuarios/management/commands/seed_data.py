@@ -25,8 +25,8 @@ class Command(BaseCommand):
                 'telefono': '+56 9 1234 5678',
                 'profesion': 'Desarrollador Full Stack',
                 'experiencia_anios': 3,
-                'cv': 'cv_candidato_demo.pdf',
-                'foto_perfil': 'foto_candidato_demo.png',
+                'cv': '',
+                'foto_perfil': '',
             },
         )
 

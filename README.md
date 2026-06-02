@@ -76,6 +76,28 @@ Cargar datos de prueba:
 docker compose exec backend python manage.py seed_data
 ```
 
+Guardar usuarios, perfiles de candidatos y archivos de CV/foto actuales en el repositorio:
+
+```bash
+make export-data
+```
+
+Restaurar usuarios, perfiles de candidatos y archivos de CV/foto guardados:
+
+```bash
+make import-data
+```
+
+Los datos exportados quedan en `backend/usuarios/fixtures/datos.json` y los archivos en `backend/usuarios/fixtures/uploads/`. Esos archivos se pueden commitear y pushear; PostgreSQL completo sigue quedando en `data/postgres`, que no se versiona.
+
+Para que Git ejecute el respaldo automáticamente antes de cada commit:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Con ese hook activo, el contenedor `backend` debe estar corriendo al hacer commit.
+
 Ver logs del bus:
 
 ```bash

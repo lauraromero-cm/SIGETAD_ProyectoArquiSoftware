@@ -1,0 +1,49 @@
+{
+  "usuarios": [
+    {
+      "id_usuario": 1,
+      "nombre": "Administrador SIGETAD",
+      "correo": "admin@firmafast.cl",
+      "contrasena": "pbkdf2_sha256$720000$vRGvmxqmxdrrXzRiBgLtGi$phqi/pb4gnuAHwDGwLk2JVknJb0a8JZzPs9RRL3FMnQ=",
+      "rol": "admin",
+      "estado": "activo"
+    },
+    {
+      "id_usuario": 2,
+      "nombre": "Laura Analista",
+      "correo": "analista@firmafast.cl",
+      "contrasena": "pbkdf2_sha256$720000$pfqbMnvy957W193OQ0ZHlv$AKHUk97YsdhG2sWkrmbWNwasnTYIYgukDNJB+M/0rew=",
+      "rol": "analista",
+      "estado": "activo"
+    },
+    {
+      "id_usuario": 3,
+      "nombre": "Jefe de Área TI",
+      "correo": "jefe@firmafast.cl",
+      "contrasena": "pbkdf2_sha256$720000$XwCjWzAgwK2ZJs4RgMAUTr$LGRa6sMSH9vgr51oul1ATfEB9pSB7wExx4BGqgP/Dc8=",
+      "rol": "jefe_area",
+      "estado": "activo"
+    },
+    {
+      "id_usuario": 4,
+      "nombre": "Candidato Demo",
+      "correo": "candidato@correo.cl",
+      "contrasena": "pbkdf2_sha256$720000$D8Br9OphaNntZdr90r4BNl$QyIGrqtT6g/+OYx09a2WLvYhxsnrgt4o8bTP6KamdDg=",
+      "rol": "candidato",
+      "estado": "activo"
+    }
+  ],
+  "candidatos": [
+    {
+      "id_candidato": 1,
+      "id_usuario": 4,
+      "nombre_completo": "Candidato Demo",
+      "email": "candidato@correo.cl",
+      "telefono": "+56 9 1234 5678",
+      "profesion": "Desarrollador Full Stack",
+      "experiencia_anios": 3,
+      "cv": "",
+      "foto_perfil": ""
+    }
+  ]
+}
