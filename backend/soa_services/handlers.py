@@ -470,8 +470,22 @@ def handle_evaluaciones(action, data, user):
 # ---------------- Historial ----------------
 def handle_historial(action, data, user):
     if action == 'listar_historial':
-        require_user(user)
-        qs = Historial.objects.select_related('id_usuario', 'id_postulacion').filter(is_deleted=False)
+        require_roles(user, ['admin', 'candidato'])
+        qs = Historial.objects.select_related(
+            'id_usuario',
+            'id_postulacion',
+            'id_postulacion__id_candidato',
+        ).filter(is_deleted=False)
+
+        if user.get('rol') == 'candidato':
+            try:
+                candidato = Candidato.objects.get(id_usuario_id=user['id_usuario'])
+            except Candidato.DoesNotExist:
+                return []
+            qs = qs.filter(
+                Q(id_postulacion__id_candidato=candidato) |
+                Q(id_entidad_tipo=Historial.ENTIDAD_CANDIDATO, id_entidad_referencia=candidato.id_candidato)
+            )
         
         # Filtro por postulación
         if data.get('id_postulacion'):

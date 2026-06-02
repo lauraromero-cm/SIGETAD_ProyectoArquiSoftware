@@ -86,6 +86,7 @@ function Dashboard({ user, onLogout }) {
     if (user.rol === 'candidato') {
       items.push(['portal', 'Portal Candidato', UserRound])
       items.push(['misPostulaciones', 'Mis postulaciones', ClipboardList])
+      items.push(['historial', 'Mi historial', History])
     }
     if (['admin', 'analista'].includes(user.rol)) {
       items.push(['reclutamiento', 'Panel Reclutamiento', Briefcase])
@@ -97,8 +98,8 @@ function Dashboard({ user, onLogout }) {
     }
     if (user.rol === 'admin') {
       items.push(['admin', 'Administración', ShieldCheck])
+      items.push(['historial', 'Historial', History])
     }
-    items.push(['historial', 'Historial', History])
     return items
   }, [user.rol])
 

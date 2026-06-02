@@ -6,4 +6,5 @@ dist/
 .vite/
 postgres_data/
 backend/uploads/
+data/
 .DS_Store
