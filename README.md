@@ -11,7 +11,7 @@ Frontend React -> Bus TCP/ESB -> Servicios Django -> PostgreSQL
 
 - **Frontend:** React + Vite.
 - **Backend API:** Django.
-- **Bus TCP/ESB:** Python socket server basado y adaptado desde `bus.zip`.
+- **Bus TCP/ESB:** Python socket server basado y adaptado.
 - **Servicios SOA:** apps Django separadas:
   - usuarios
   - vacantes
@@ -34,7 +34,6 @@ cd sigetad-soa
 cp .env.example .env
 sudo docker-compose down
 sudo docker compose up --build
-sudo docker-compose build
 ```
 
 Luego abre:
