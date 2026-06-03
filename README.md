@@ -111,8 +111,6 @@ docker compose logs -f service_usuarios
 
 ## Protocolo del Bus TCP
 
-Se mantiene la idea original de `bus.zip`:
-
 ```text
 [5 bytes largo][5 bytes servicio][payload JSON]
 ```
@@ -150,10 +148,6 @@ El gateway expone carga `multipart/form-data` y mantiene la operación de negoci
 
 Validaciones implementadas: extensión PDF, `content-type`, firma `%PDF-`, tamaño máximo configurable, rechazo del archivo de prueba antivirus EICAR y escaneo con `clamscan` cuando está disponible en el contenedor/sistema. La persistencia por defecto es disco local en `backend/uploads/documentos`. Variables relevantes: `MEDIA_ROOT`, `DOCUMENTOS_MAX_UPLOAD_BYTES` y `DOCUMENTOS_DOWNLOAD_TOKEN_SECONDS`.
 
-## Decisión sobre CV y foto de perfil
-
-Para mantener el proyecto simple, funcional y alineado al modelo, el CV y la foto de perfil se guardan como campos de texto (`cv` y `foto_perfil`). Pueden representar una URL, nombre de archivo o ruta. Esto evita complejidad innecesaria con subida binaria por TCP y mantiene el foco en SOA.
-
 ## Estructura principal
 
 ```text
@@ -161,7 +155,7 @@ sigetad-soa/
   backend/
     bus/                  # librería TCP adaptada + servidor ESB
     config/               # settings Django
-    gateway/              # capa HTTP para React
+    gateway/            
     usuarios/             # servicio usuarios
     vacantes/             # servicio vacantes
     candidatos/           # servicio candidatos
@@ -196,9 +190,9 @@ Las contraseñas se almacenan **hasheadas** usando el algoritmo **PBKDF2-SHA256*
 - **Mecanismo**: Implementado por defecto en Django mediante `django.contrib.auth.hashers.PBKDF2PasswordHasher`
 
 **Características de seguridad**:
-- ✅ Las contraseñas nunca se almacenan en texto plano
-- ✅ Es computacionalmente costoso intentar descifrar una contraseña hasheada
-- ✅ Cada contraseña tiene su propio salt, previniendo ataques por diccionario
-- ✅ Compatible con los estándares de seguridad actuales (OWASP, NIST)
+- Las contraseñas nunca se almacenan en texto plano
+- Es computacionalmente costoso intentar descifrar una contraseña hasheada
+- Cada contraseña tiene su propio salt, previniendo ataques por diccionario
+- Compatible con los estándares de seguridad actuales (OWASP, NIST)
 
 **Configuración**: Ver `backend/config/settings.py` en la sección `PASSWORD_HASHERS`
