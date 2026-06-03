@@ -1,4 +1,19 @@
 from django.db import models
+from django.utils import timezone
+
+
+class UsuarioManager(models.Manager):
+    """Manager que excluye usuarios eliminados (soft delete)"""
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+    
+    def all_including_deleted(self):
+        """Retorna todos los usuarios incluyendo eliminados"""
+        return super().get_queryset()
+    
+    def deleted_only(self):
+        """Retorna solo usuarios eliminados"""
+        return super().get_queryset().filter(is_deleted=True)
 
 
 class Usuario(models.Model):
@@ -28,13 +43,34 @@ class Usuario(models.Model):
     contrasena = models.CharField(max_length=255)
     rol = models.CharField(max_length=30, choices=ROLES)
     estado = models.CharField(max_length=20, choices=ESTADOS, default=ESTADO_ACTIVO)
+    is_deleted = models.BooleanField(default=False, help_text='Soft delete: usuario marcado como eliminado')
+    fecha_eliminacion = models.DateTimeField(null=True, blank=True, help_text='Fecha y hora de eliminación')
+    
+    objects = UsuarioManager()
 
     class Meta:
         db_table = 'usuario'
         ordering = ['id_usuario']
+        indexes = [
+            models.Index(fields=['is_deleted', 'estado'], name='idx_usuario_deleted_estado'),
+            models.Index(fields=['correo', 'is_deleted'], name='idx_usuario_correo_deleted'),
+        ]
 
     def __str__(self):
-        return f'{self.nombre} ({self.rol})'
+        status = ' (ELIMINADO)' if self.is_deleted else ''
+        return f'{self.nombre} ({self.rol}){status}'
+    
+    def soft_delete(self):
+        """Marca el usuario como eliminado (soft delete)"""
+        self.is_deleted = True
+        self.fecha_eliminacion = timezone.now()
+        self.save(update_fields=['is_deleted', 'fecha_eliminacion'])
+    
+    def restore(self):
+        """Restaura un usuario eliminado"""
+        self.is_deleted = False
+        self.fecha_eliminacion = None
+        self.save(update_fields=['is_deleted', 'fecha_eliminacion'])
 
 
 class LoginIntento(models.Model):

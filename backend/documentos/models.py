@@ -18,7 +18,7 @@ class Documento(models.Model):
     tamanio_bytes = models.PositiveBigIntegerField()
     checksum_sha256 = models.CharField(max_length=64)
     estado = models.CharField(max_length=20, choices=ESTADOS, default=ESTADO_DISPONIBLE)
-    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.PROTECT, db_column='id_usuario', related_name='documentos_subidos')
+    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.CASCADE, db_column='id_usuario', related_name='documentos_subidos')
     id_postulacion = models.ForeignKey(
         'postulaciones.Postulacion',
         on_delete=models.CASCADE,
@@ -55,7 +55,7 @@ class DocumentoAuditoria(models.Model):
 
     id_auditoria = models.BigAutoField(primary_key=True)
     id_documento = models.ForeignKey(Documento, on_delete=models.CASCADE, db_column='id_documento', related_name='auditoria')
-    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.PROTECT, db_column='id_usuario', related_name='auditoria_documentos')
+    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.CASCADE, db_column='id_usuario', related_name='auditoria_documentos')
     accion = models.CharField(max_length=30, choices=ACCIONES)
     fecha = models.DateTimeField(auto_now_add=True)
     detalles = models.JSONField(default=dict, blank=True)

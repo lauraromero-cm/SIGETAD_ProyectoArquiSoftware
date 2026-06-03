@@ -17,7 +17,7 @@ class Vacante(models.Model):
     salario_maximo = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     requisitos = models.TextField(blank=True)
     estado = models.CharField(max_length=20, choices=ESTADOS, default=ESTADO_ABIERTA)
-    creado_por = models.ForeignKey('usuarios.Usuario', on_delete=models.PROTECT, db_column='creado_por', related_name='vacantes_creadas')
+    creado_por = models.ForeignKey('usuarios.Usuario', on_delete=models.CASCADE, db_column='creado_por', related_name='vacantes_creadas')
 
     class Meta:
         db_table = 'vacante'

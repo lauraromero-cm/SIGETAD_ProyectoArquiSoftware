@@ -34,7 +34,7 @@ class Historial(models.Model):
     id_postulacion = models.ForeignKey('postulaciones.Postulacion', on_delete=models.CASCADE, db_column='id_postulacion', related_name='historial', null=True, blank=True)
     tipo = models.CharField(max_length=30, choices=TIPOS)
     descripcion = models.TextField()
-    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.PROTECT, db_column='id_usuario', related_name='historial_registrado')
+    id_usuario = models.ForeignKey('usuarios.Usuario', on_delete=models.CASCADE, db_column='id_usuario', related_name='historial_registrado')
     fecha = models.DateTimeField(auto_now_add=True)
     
     # Campos nuevos para auditoría mejorada
