@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-me')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
@@ -57,10 +57,14 @@ LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv('LOGIN_MAX_FAILED_ATTEMPTS', '5'))
 LOGIN_LOCKOUT_SECONDS = int(os.getenv('LOGIN_LOCKOUT_SECONDS', str(15 * 60)))
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True
 from corsheaders.defaults import default_headers, default_methods
 CORS_ALLOW_HEADERS = list(default_headers) + ['authorization']
 CORS_ALLOW_METHODS = list(default_methods)
+_cors_allow_all = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() == 'true'
+if _cors_allow_all:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',') if o.strip()]
 
 BUS_HOST = os.getenv('BUS_HOST', 'localhost')
 BUS_PORT = int(os.getenv('BUS_PORT', '5000'))

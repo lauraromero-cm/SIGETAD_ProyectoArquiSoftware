@@ -26,6 +26,16 @@ from .serializers import (
 from .permissions import require_roles, require_user
 
 
+_TRANSICIONES_POSTULACION = {
+    'postulado':   ['en_revision', 'rechazado'],
+    'en_revision': ['entrevista', 'rechazado'],
+    'entrevista':  ['evaluacion', 'rechazado'],
+    'evaluacion':  ['finalista', 'rechazado'],
+    'finalista':   ['contratado', 'rechazado'],
+    'rechazado':   [],
+    'contratado':  [],
+}
+
 SERVICE_CODES = {
     'USUAR': 'usuarios',
     'VACAN': 'vacantes',
@@ -53,6 +63,34 @@ def handle(service_code, action, data, user):
     if service_code == 'DOCUM':
         return handle_documentos(action, data, user)
     raise ValueError('Servicio no reconocido')
+
+
+def _validar_contrasena(contrasena):
+    if len(contrasena) < 8:
+        raise ValueError('La contraseña debe tener al menos 8 caracteres')
+    if not any(c.isalpha() for c in contrasena):
+        raise ValueError('La contraseña debe contener al menos una letra')
+    if not any(c.isdigit() for c in contrasena):
+        raise ValueError('La contraseña debe contener al menos un número')
+
+
+def _validar_vacante_campos(titulo, salario_minimo, salario_maximo):
+    if not (titulo or '').strip():
+        raise ValueError('El título de la vacante es obligatorio')
+    try:
+        sal_min = float(salario_minimo) if salario_minimo is not None else 0
+    except (TypeError, ValueError):
+        raise ValueError('El salario mínimo debe ser un número válido')
+    try:
+        sal_max = float(salario_maximo) if salario_maximo is not None else 0
+    except (TypeError, ValueError):
+        raise ValueError('El salario máximo debe ser un número válido')
+    if sal_min < 0:
+        raise ValueError('El salario mínimo no puede ser negativo')
+    if sal_max < 0:
+        raise ValueError('El salario máximo no puede ser negativo')
+    if sal_max > 0 and sal_max < sal_min:
+        raise ValueError('El salario máximo no puede ser menor que el salario mínimo')
 
 
 def _registrar_historial(user_id, descripcion, entidad_tipo=Historial.ENTIDAD_USUARIO, entidad_id=None, tipo=Historial.TIPO_EVENTO, cambios=None, id_postulacion=None):
@@ -105,9 +143,12 @@ def handle_usuarios(action, data, user):
     if action == 'registrar_candidato_usuario':
         nombre = data.get('nombre') or data.get('nombre_completo') or ''
         correo = (data.get('correo') or data.get('email') or '').strip().lower()
-        contrasena = data.get('contrasena') or 'admin123'
+        contrasena = data.get('contrasena') or ''
         if not nombre or not correo:
             raise ValueError('Nombre y correo son obligatorios')
+        if not contrasena:
+            raise ValueError('La contraseña es obligatoria')
+        _validar_contrasena(contrasena)
         with transaction.atomic():
             usuario = Usuario.objects.create(
                 nombre=nombre,
@@ -133,10 +174,13 @@ def handle_usuarios(action, data, user):
         nombre = (data.get('nombre') or '').strip()
         correo = (data.get('correo') or '').strip().lower()
         rol = (data.get('rol') or '').strip()
-        contrasena = data.get('contrasena') or 'admin123'
+        contrasena = data.get('contrasena') or ''
         estado = data.get('estado') or Usuario.ESTADO_ACTIVO
         if not nombre or not correo:
             raise ValueError('Nombre y correo son obligatorios')
+        if not contrasena:
+            raise ValueError('La contraseña es obligatoria')
+        _validar_contrasena(contrasena)
         if rol not in dict(Usuario.ROLES):
             raise ValueError('Rol inválido')
         if estado not in dict(Usuario.ESTADOS):
@@ -206,6 +250,11 @@ def handle_vacantes(action, data, user):
 
     if action == 'crear_vacante':
         require_roles(user, ['admin', 'analista'])
+        _validar_vacante_campos(
+            titulo=data.get('titulo', ''),
+            salario_minimo=data.get('salario_minimo'),
+            salario_maximo=data.get('salario_maximo'),
+        )
         creador = Usuario.objects.get(id_usuario=user['id_usuario'])
         with transaction.atomic():
             v = Vacante.objects.create(
@@ -224,6 +273,11 @@ def handle_vacantes(action, data, user):
     if action == 'editar_vacante':
         require_roles(user, ['admin', 'analista'])
         v = Vacante.objects.get(id_vacante=data.get('id_vacante'))
+        _validar_vacante_campos(
+            titulo=data.get('titulo', v.titulo),
+            salario_minimo=data.get('salario_minimo', v.salario_minimo),
+            salario_maximo=data.get('salario_maximo', v.salario_maximo),
+        )
         fields = ['titulo', 'descripcion', 'departamento', 'salario_minimo', 'salario_maximo', 'requisitos', 'estado']
         before = {field: getattr(v, field) for field in fields}
         for field in ['titulo', 'descripcion', 'departamento', 'salario_minimo', 'salario_maximo', 'requisitos', 'estado']:
@@ -281,12 +335,14 @@ def handle_candidatos(action, data, user):
         )
         fields = ['nombre_completo', 'email', 'telefono', 'profesion', 'experiencia_anios', 'cv', 'foto_perfil']
         before = {field: getattr(candidato, field) for field in fields}
-        for field in ['nombre_completo', 'email', 'telefono', 'profesion', 'experiencia_anios', 'cv', 'foto_perfil']:
+        for field in ['nombre_completo', 'telefono', 'profesion', 'experiencia_anios', 'cv', 'foto_perfil']:
             if field in data:
                 value = data[field]
                 if field == 'experiencia_anios':
                     value = int(str(value or 0).replace('+', '') or 0)
                 setattr(candidato, field, value or (0 if field == 'experiencia_anios' else ''))
+        # Email de perfil siempre sincronizado con el email de la cuenta (login)
+        candidato.email = usuario.correo
         candidato.save()
         after = {field: getattr(candidato, field) for field in fields}
         cambios = _audit_changes(before, after, fields)
@@ -365,8 +421,12 @@ def handle_postulaciones(action, data, user):
     if action == 'postular':
         require_roles(user, ['candidato'])
         candidato = Candidato.objects.get(id_usuario_id=user['id_usuario'])
+        if not candidato.cv:
+            raise ValueError('Debes cargar tu CV antes de postular')
+        if not candidato.nombre_completo or not candidato.profesion:
+            raise ValueError('Debes completar tu perfil (nombre y profesión) antes de postular')
         vacante = Vacante.objects.get(id_vacante=data.get('id_vacante'), estado=Vacante.ESTADO_ABIERTA)
-        
+
         # Validar que el candidato no esté ya postulado a esta vacante
         existe = Postulacion.objects.filter(id_candidato=candidato, id_vacante=vacante).exists()
         if existe:
@@ -407,6 +467,12 @@ def handle_postulaciones(action, data, user):
         estado = data.get('estado')
         if estado not in dict(Postulacion.ESTADOS):
             raise ValueError('Estado de postulación inválido')
+        transiciones_permitidas = _TRANSICIONES_POSTULACION.get(estado_anterior, [])
+        if estado not in transiciones_permitidas:
+            raise ValueError(
+                f'Transición de estado inválida: no se puede pasar de "{estado_anterior}" a "{estado}". '
+                f'Estados permitidos desde "{estado_anterior}": {transiciones_permitidas or ["ninguno (estado final)"]}'
+            )
         with transaction.atomic():
             p.estado = estado
             p.notas = data.get('notas', p.notas)
@@ -442,7 +508,7 @@ def handle_postulaciones(action, data, user):
 # ---------------- Evaluaciones ----------------
 def handle_evaluaciones(action, data, user):
     if action == 'registrar_evaluacion':
-        require_roles(user, ['admin', 'jefe_area', 'analista'])
+        require_roles(user, ['admin', 'jefe_area'])
         p = Postulacion.objects.get(id_postulacion=data.get('id_postulacion'))
         calificacion = int(data.get('calificacion') or 0)
         if calificacion < 1 or calificacion > 5:
@@ -549,11 +615,14 @@ def handle_historial(action, data, user):
         return [historial_to_dict(h) for h in qs]
 
     if action == 'registrar_evento':
-        require_roles(user, ['admin', 'analista', 'jefe_area'])
+        require_roles(user, ['admin'])
+        descripcion = (data.get('descripcion') or '').strip()
+        if not descripcion:
+            raise ValueError('La descripción del evento es obligatoria')
         h = Historial.objects.create(
             id_postulacion_id=data.get('id_postulacion'),
-            tipo=data.get('tipo', Historial.TIPO_EVENTO),
-            descripcion=data.get('descripcion', ''),
+            tipo=Historial.TIPO_EVENTO,
+            descripcion=descripcion,
             id_usuario_id=user['id_usuario'],
             id_entidad_tipo=data.get('id_entidad_tipo', Historial.ENTIDAD_POSTULACION),
             id_entidad_referencia=data.get('id_entidad_referencia'),
